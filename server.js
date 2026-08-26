@@ -83,6 +83,17 @@ const {
   upsertCompletedJobFromDispatch,
 } = require('./lib/upsertCompletedJobFromDispatch.cjs');
 const { withClientTripIdCreateLock } = require('./lib/clientTripIdCreateLock.cjs');
+const {
+  generatePickupPin,
+  isPassengerAppBooking,
+  jobPickupPin,
+  needsPickupVerification,
+  isPickupVerified,
+  noShowDeadlineMs,
+  canMarkNoShow,
+  computeNoShowWaitCharge,
+  NOSHOW_EXTENSION_MS,
+} = require('./lib/pickupResolution.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -1223,7 +1234,8 @@ function _terminalFirebaseStatusFields(finalStatus) {
   };
 }
 
-const _DRIVER_RECALL_STATUSES = new Set(['Offered', 'Assigned', 'Picking', 'Queued']);
+// Arrived included so wrong-passenger / uninvited can return the booking to the pool.
+const _DRIVER_RECALL_STATUSES = new Set(['Offered', 'Assigned', 'Picking', 'Queued', 'Arrived']);
 const _DRIVER_NO_SHOW_STATUSES = new Set(['Arrived']);
 const _DRIVER_POST_ARRIVED_TERMINAL = new Set(['Arrived', 'Active', 'OnTrip', 'Busy']);
 
@@ -1271,7 +1283,41 @@ function _resolveApiCancelRouting(body, job) {
     if (!_DRIVER_NO_SHOW_STATUSES.has(stage)) {
       return { ok: false, error_code: 'forbidden', error: 'No Show is only allowed after marking Arrived at pickup' };
     }
-    return { ok: true, recallToPending: false, terminalKind: 'No Show', reason: 'No Show', driverFault: true };
+    const _nsGate = canMarkNoShow(job, Date.now());
+    if (!_nsGate.ok) {
+      return {
+        ok: false,
+        error_code: _nsGate.error_code || 'forbidden',
+        error: _nsGate.error || 'No Show not allowed yet',
+        remainingMs: _nsGate.remainingMs,
+        deadlineAt: _nsGate.deadlineAt,
+      };
+    }
+    // Curb wait is charged at waiting rate — not driver-fault for rank/pay.
+    return {
+      ok: true,
+      recallToPending: false,
+      terminalKind: 'No Show',
+      reason: reason || 'No Show',
+      driverFault: false,
+      noShowWait: true,
+    };
+  }
+
+  // Uninvited / wrong passenger: return booked job to pool (incl. Arrived).
+  const wrongPassenger =
+    body.wrongPassenger === true ||
+    body.recallWrongPassenger === true ||
+    /wrong\s*passenger|uninvited/i.test(reason);
+  if (wrongPassenger && _DRIVER_RECALL_STATUSES.has(stage) && stage !== 'Active') {
+    return {
+      ok: true,
+      recallToPending: true,
+      terminalKind: null,
+      reason: reason || 'Wrong passenger / uninvited — returned to pool',
+      driverFault: false,
+      wrongPassenger: true,
+    };
   }
 
   if (forceTerminal) {
@@ -3204,16 +3250,42 @@ async function cancelBooking(opts) {
   }
 
   if (recallToPending) {
-    // Driver recalled an Assigned booking — restore pre-offer U-A pool status.
+    // Driver recalled — restore pre-offer U-A pool status (incl. Arrived wrong-passenger).
     const _restoredPool = _restorePoolStatusAfterOfferRelease(job);
     _applyPoolStatusFields(job, _restoredPool);
-    job.returnReason = 'Recalled by Driver';
+    job.returnReason = /wrong\s*passenger|uninvited/i.test(reason)
+      ? 'Wrong passenger / uninvited — returned to pool'
+      : 'Recalled by Driver';
+    job.ReturnReason = job.returnReason;
     delete job.JobCompleteTime;
+    // Clear arrival / verify so a new driver starts clean.
+    delete job.ArrivedAt;
+    delete job.arrivedAt;
+    delete job.ActiveAt;
+    delete job.pickupVerifiedAt;
+    delete job.PickupVerifiedAt;
+    delete job.imComingAt;
+    delete job.noShowWaitExtended;
+    delete job.noShowDeadlineAt;
     saveJobStore();
     console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${_restoredPool}+releasedAt (recall by ${cancelledByDisplay}, prevDriver=${_drvId || 'none'})`);
   } else {
     // Hard cancel — close the job.
     const _tk = terminalKindOpt || (/no\s*show/i.test(reason) ? 'No Show' : 'Cancelled');
+    if (_tk === 'No Show' || _tk === 'NoShow') {
+      const _rate = _waitingRateForJob(job);
+      const _ns = computeNoShowWaitCharge(job, _rate, Date.now());
+      job.WaitMinutes = _ns.waitMinutes;
+      job.WaitingMinutes = _ns.waitMinutes;
+      job.WaitingTime = _ns.waitMinutes;
+      job.WaitingCost = _ns.waitingCharge;
+      job.waitingCharge = _ns.waitingCharge;
+      job.waitingPerMin = _ns.waitingPerMin;
+      job.NoShowReason = _ns.reason;
+      job.CancelReason = _ns.reason;
+      job.FareSnapshot = _ns.waitingCharge;
+      if (_ns.extended) job.NoShowWaitExtended = true;
+    }
     job.BookingStatus   = _tk;
     job.TerminalKind    = _tk;
     job.JobCompleteTime = _nowIso;
@@ -5398,6 +5470,11 @@ async function acceptBooking(opts) {
     _fanPatch.DriverName = _acceptDriverName;
     _fanPatch.driverName = _acceptDriverName;
   }
+  const _acceptPin = jobPickupPin(job);
+  if (_acceptPin) {
+    _fanPatch.PickupPin = _acceptPin;
+    _fanPatch.pickupPin = _acceptPin;
+  }
   if (_cid) {
     try {
       await _fanVersionToFirebaseAwait(_cid, bookingId, _fanPatch, false);
@@ -6030,6 +6107,8 @@ function _buildAllbookingsMirrorFromJob(job) {
     AssignedDriverId: driverId !== '0' ? driverId : '',
     DriverName: String(job.DriverName || job.driverName || _driverDisplayNameFromZone(driverId) || ''),
     driverName: String(job.DriverName || job.driverName || _driverDisplayNameFromZone(driverId) || ''),
+    PickupPin: jobPickupPin(job) || '',
+    pickupPin: jobPickupPin(job) || '',
     PassengerName: normed.name,
     Name: normed.name,
     PhoneNo: normed.phone,
@@ -7254,7 +7333,7 @@ async function driverRecallJob(opts) {
     return {
       ok: false,
       error_code: 'forbidden',
-      error: 'Recall is only allowed before arriving at pickup',
+      error: 'Recall is only allowed before On Board (Assigned / Arrived / queue)',
       currentStatus: _prevSt,
     };
   }
@@ -7364,6 +7443,26 @@ async function _mirrorDriverOnlineStatus(cid, driverId, vehicleId, bookingStatus
   }
 }
 
+function _waitingRateForJob(job) {
+  try {
+    const tid = String(
+      (job && (job.TarriffId || job.TariffId || job.tariffId)) || '',
+    ).trim();
+    let row = null;
+    if (tid && tid !== '0' && tid !== '-1' && typeof TARIFF_STORE !== 'undefined' && Array.isArray(TARIFF_STORE)) {
+      row = TARIFF_STORE.find((t) => t && String(t.Id) === tid);
+    }
+    if (!row && typeof TARIFF_STORE !== 'undefined' && Array.isArray(TARIFF_STORE) && TARIFF_STORE[0]) {
+      row = TARIFF_STORE[0];
+    }
+    const rate = Number(
+      row && (row.WaitingRate ?? row.waitingRate ?? row.waitingRatePerMinute ?? row.waitingPerMin),
+    );
+    if (Number.isFinite(rate) && rate >= 0) return rate;
+  } catch (_) { /* ignore */ }
+  return 0.6; // console estimate default when tariff wait is missing
+}
+
 /** Driver trip stage — Arrived / Active / Assigned (same transitions as [DriverStatusChanged]). */
 async function driverStageJob(opts) {
   opts = opts || {};
@@ -7435,7 +7534,21 @@ async function driverStageJob(opts) {
     };
   }
 
-  if (nextStatus === 'Arrived' && !job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+  // PassengerApp pickup verification gate — PIN + name confirm before On Board.
+  if (nextStatus === 'Active' && needsPickupVerification(job) && !isPickupVerified(job)) {
+    return {
+      ok: false,
+      error_code: 'pickup_unverified',
+      error: 'Confirm passenger name and PIN before On Board',
+      currentStatus: prev,
+      booking: _publicBooking(job),
+    };
+  }
+
+  if (nextStatus === 'Arrived' && !job.ArrivedAt) {
+    job.ArrivedAt = new Date().toISOString();
+    job.noShowDeadlineAt = new Date(noShowDeadlineMs(job, Date.now())).toISOString();
+  }
   if (nextStatus === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
   if (nextStatus === 'Assigned') {
     if (!job.assignedAt) job.assignedAt = Date.now();
@@ -7455,6 +7568,10 @@ async function driverStageJob(opts) {
       updateSeq:     job.updateSeq,
       ArrivedAt:     job.ArrivedAt,
       ActiveAt:      job.ActiveAt,
+      noShowDeadlineAt: job.noShowDeadlineAt || null,
+      PickupPin:     jobPickupPin(job) || undefined,
+      pickupPin:     jobPickupPin(job) || undefined,
+      pickupVerifiedAt: job.pickupVerifiedAt || null,
       eventType:     'updated',
     }, false);
     const _vid = String(job.VehicleNo || job.VehicleId || job.CallSign || '').trim();
@@ -7466,6 +7583,135 @@ async function driverStageJob(opts) {
   return {
     ok: true, status: job.BookingStatus,
     version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job),
+  };
+}
+
+async function verifyPickupForOnBoard(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId = String(opts.driverId || '').trim();
+  const nameConfirmed = opts.nameConfirmed === true;
+  const pinConfirmed = opts.pinConfirmed === true;
+  const source = opts.source || 'verifyPickupForOnBoard';
+  if (!bookingId || !driverId) {
+    return { ok: false, error_code: 'bad_request', error: 'bookingId and driverId required' };
+  }
+  if (!nameConfirmed || !pinConfirmed) {
+    return {
+      ok: false,
+      error_code: 'incomplete',
+      error: 'Both name and PIN must be confirmed (verbal check against screen)',
+    };
+  }
+  const idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const job = jobStore[idx];
+  const _cid = String(job.companyId || opts.companyId || '');
+  const stage = String(job.BookingStatus || '');
+  if (!['Arrived', 'Assigned', 'Picking'].includes(stage)) {
+    return {
+      ok: false,
+      error_code: 'invalid_transition',
+      error: `cannot verify pickup in status ${stage}`,
+      currentStatus: stage,
+    };
+  }
+  const _jobDrv = _normJobDriverId(job.DriverId) || String(job.DriverId || '').trim();
+  if (_jobDrv && _jobDrv !== driverId && String(job.DriverId) !== driverId) {
+    return { ok: false, error_code: 'forbidden', error: 'job assigned to another driver' };
+  }
+  if (!jobPickupPin(job) && needsPickupVerification(job)) {
+    job.PickupPin = generatePickupPin();
+    job.pickupPin = job.PickupPin;
+  }
+  if (isPickupVerified(job)) {
+    return {
+      ok: true,
+      idempotent: true,
+      pickupVerifiedAt: job.pickupVerifiedAt,
+      version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job),
+    };
+  }
+  const nowIso = new Date().toISOString();
+  job.pickupVerifiedAt = nowIso;
+  job.PickupVerifiedAt = nowIso;
+  job.pickupVerifiedBy = driverId;
+  _bumpJobUpdateSeq(job, 'driver');
+  saveJobStore();
+  if (_cid) {
+    _fanVersionToFirebase(_cid, bookingId, {
+      pickupVerifiedAt: nowIso,
+      PickupVerifiedAt: nowIso,
+      pickupVerifiedBy: driverId,
+      PickupPin: jobPickupPin(job),
+      pickupPin: jobPickupPin(job),
+      updateSeq: job.updateSeq,
+      eventType: 'updated',
+    }, false);
+  }
+  console.log(`  [${source}] pickup verified #${bookingId} by ${driverId}`);
+  return {
+    ok: true,
+    pickupVerifiedAt: nowIso,
+    version: parseInt(job.updateSeq) || 0,
+    booking: _publicBooking(job),
+  };
+}
+
+async function passengerImComing(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const source = opts.source || 'passengerImComing';
+  if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
+  const idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const job = jobStore[idx];
+  const _cid = String(job.companyId || opts.companyId || '');
+  if (String(job.BookingStatus || '') !== 'Arrived') {
+    return {
+      ok: false,
+      error_code: 'invalid_transition',
+      error: 'I\'m coming is only available after the driver has arrived',
+      currentStatus: job.BookingStatus,
+    };
+  }
+  if (job.imComingAt || job.noShowWaitExtended) {
+    return {
+      ok: true,
+      idempotent: true,
+      noShowDeadlineAt: job.noShowDeadlineAt || null,
+      version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job),
+    };
+  }
+  const nowIso = new Date().toISOString();
+  job.imComingAt = nowIso;
+  job.ImComingAt = nowIso;
+  job.noShowWaitExtended = true;
+  job.NoShowWaitExtended = true;
+  job.noShowDeadlineAt = new Date(noShowDeadlineMs(job, Date.now())).toISOString();
+  _bumpJobUpdateSeq(job, 'passenger');
+  saveJobStore();
+  if (_cid) {
+    _fanVersionToFirebase(_cid, bookingId, {
+      imComingAt: nowIso,
+      ImComingAt: nowIso,
+      noShowWaitExtended: true,
+      NoShowWaitExtended: true,
+      noShowDeadlineAt: job.noShowDeadlineAt,
+      updateSeq: job.updateSeq,
+      eventType: 'updated',
+    }, false);
+  }
+  console.log(`  [${source}] I'm coming #${bookingId} — no-show deadline extended +${NOSHOW_EXTENSION_MS}ms`);
+  return {
+    ok: true,
+    imComingAt: nowIso,
+    noShowDeadlineAt: job.noShowDeadlineAt,
+    extensionMs: NOSHOW_EXTENSION_MS,
+    version: parseInt(job.updateSeq) || 0,
+    booking: _publicBooking(job),
   };
 }
 
@@ -7881,6 +8127,10 @@ function _jobLifecycleSnapshot(job) {
     lastUpdatedAt: job.lastUpdatedAt || null,
     lastUpdatedBy: job.lastUpdatedBy || null,
     returnReason: job.returnReason || null,
+    CancelReason: job.CancelReason || null,
+    NoShowReason: job.NoShowReason || null,
+    WaitMinutes: job.WaitMinutes ?? job.WaitingMinutes ?? null,
+    WaitingCost: job.WaitingCost ?? job.waitingCharge ?? null,
     JobCompleteTime: job.JobCompleteTime || null,
     completedAtMs: job.completedAtMs || null,
     assignedAt: job.assignedAt || null,
@@ -18059,10 +18309,63 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _status = _result.ok ? 200
       : (_result.error_code === 'not_found' ? 404
       : (_result.error_code === 'forbidden' ? 403
-      : (_result.error_code === 'already_terminal' ? 410 : 409)));
+      : (_result.error_code === 'already_terminal' ? 410
+      : (_result.error_code === 'pickup_unverified' ? 409 : 409))));
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_result));
     console.log(`${_status}: POST /api/job/stage #${_sJob} driver=${_sDrv} → ${_sStatus} ok=${_result.ok}`);
+    return;
+  }
+
+  // ── POST /api/job/verify-pickup — PIN + name confirmed before On Board ─────
+  if (urlPath === '/api/job/verify-pickup' && req.method === 'POST') {
+    const _vb = await readBody(req);
+    let _v = {};
+    try { _v = JSON.parse(_vb); } catch (e) {}
+    const _vJob = parseInt(_v.bookingId || _v.jobId || 0) || 0;
+    let _vDrv = String(_v.driverId || '').trim();
+    const _userKeyV = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_vDrv && _userKeyV) {
+      const _drv = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _userKeyV ||
+        String(d.userKey || '').trim() === _userKeyV
+      ));
+      if (_drv) _vDrv = String(_drv.driverid || '').trim();
+    }
+    const _result = await verifyPickupForOnBoard({
+      bookingId: _vJob,
+      driverId: _vDrv,
+      companyId: String(_v.companyId || _v.cid || '').trim(),
+      nameConfirmed: _v.nameConfirmed === true,
+      pinConfirmed: _v.pinConfirmed === true,
+      source: '/api/job/verify-pickup',
+    });
+    const _status = _result.ok ? 200
+      : (_result.error_code === 'not_found' ? 404
+      : (_result.error_code === 'forbidden' ? 403
+      : (_result.error_code === 'incomplete' ? 400 : 409)));
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/verify-pickup #${_vJob} driver=${_vDrv} ok=${_result.ok}`);
+    return;
+  }
+
+  // ── POST /api/job/im-coming — passenger one-shot no-show wait extension ─────
+  if (urlPath === '/api/job/im-coming' && req.method === 'POST') {
+    const _ib = await readBody(req);
+    let _i = {};
+    try { _i = JSON.parse(_ib); } catch (e) {}
+    const _iJob = parseInt(_i.bookingId || _i.jobId || 0) || 0;
+    const _result = await passengerImComing({
+      bookingId: _iJob,
+      companyId: String(_i.companyId || _i.cid || '').trim(),
+      source: '/api/job/im-coming',
+    });
+    const _status = _result.ok ? 200
+      : (_result.error_code === 'not_found' ? 404 : 409);
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/im-coming #${_iJob} ok=${_result.ok}`);
     return;
   }
 
@@ -18254,8 +18557,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _route = _resolveApiCancelRouting(_cc, _ccJobLive);
     if (!_route.ok) {
-      res.writeHead(_route.error_code === 'forbidden' ? 403 : 400, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: false, error_code: _route.error_code || 'bad_request', error: _route.error }));
+      const _http =
+        _route.error_code === 'forbidden' ? 403
+        : _route.error_code === 'too_early' ? 409
+        : 400;
+      res.writeHead(_http, JSON_HEADERS);
+      res.end(JSON.stringify({
+        ok: false,
+        error_code: _route.error_code || 'bad_request',
+        error: _route.error,
+        remainingMs: _route.remainingMs,
+        deadlineAt: _route.deadlineAt,
+      }));
       return;
     }
     let _ccReasonFinal = _route.reason || _ccReason;
@@ -18550,6 +18863,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       createdAt:          _cjCreated,
       createdVia:         '/api/job/create',
     };
+
+    // Walk-up hail forked from a booked job that was returned to the pool.
+    const _cjRelated = parseInt(_cjData.relatedBookingId || _cjData.RelatedBookingId || 0) || 0;
+    if (_cjRelated > 0 && _cjSource === 'hail') {
+      _cjJob.relatedBookingId = _cjRelated;
+      _cjJob.RelatedBookingId = _cjRelated;
+      const _relIdx = jobStore.findIndex((j) => j && j.Id === _cjRelated);
+      if (_relIdx !== -1) {
+        jobStore[_relIdx].supersededByHailId = _cjIdNum;
+        jobStore[_relIdx].SupersededByHailId = _cjIdNum;
+        saveJobStore();
+        const _relCid = String(jobStore[_relIdx].companyId || _cjCid);
+        if (_relCid) {
+          _fanVersionToFirebase(_relCid, _cjRelated, {
+            supersededByHailId: _cjIdNum,
+            SupersededByHailId: _cjIdNum,
+            eventType: 'updated',
+          }, false);
+        }
+      }
+    }
 
     // For "dispatch" source, InsertBookingv4 follows with full form data.
     // Push a Pending stub to jobStore + Firebase so the job appears in U-A immediately
@@ -25151,6 +25485,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _sId = parseInt(_ipjJobId, 10) || newCompanyJobId(_sCid);
             // §103 — store as 'Scheduled' so it shows in Unassigned with the Sched badge.
             // NotifyDispatchAt timer (client) will promote to 'Pending' at dispatch time.
+            const _sPin = (!_isWebBk)
+              ? String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() || generatePickupPin()
+              : '';
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
               BookingStatus: 'Scheduled', BookingSource: _isWebBk ? 'Website' : 'passenger',
@@ -25171,6 +25508,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               serviceType: _sn.serviceType, bookingType: _sn.bookingType,
               paymentStatus: _sn.paymentStatus || '',
               DriverId: 0, VehicleId: 0, DispatchTimebefore: _dtb,
+              ...(_sPin ? { PickupPin: _sPin, pickupPin: _sPin } : {}),
               NotifyDispatchAt: (function() {
                 const _na = _ipjJob.NotifyDispatchAt || _ipjJob.notifyDispatchAt || '';
                 if (_na) return _na;
@@ -25236,6 +25574,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               : null;
             const _wBdt = _wSf ? new Date(_wSf).toISOString() : (_wn.createdAt || new Date().toISOString());
             const _wStatus = _wTreatSched ? 'Scheduled' : 'Pending';
+            const _wPin = (!_isWebBkW)
+              ? String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() || generatePickupPin()
+              : '';
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
               BookingStatus: _wStatus,
@@ -25257,6 +25598,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               serviceType: _wn.serviceType, bookingType: _wn.bookingType,
               paymentStatus: _wn.paymentStatus || '',
               DriverId: 0, VehicleId: 0, DispatchTimebefore: _wTreatSched ? String(_wEstMins) : '0',
+              ...(_wPin ? { PickupPin: _wPin, pickupPin: _wPin } : {}),
             });
             saveJobStore();
             _writeBookingEvent(_wCid, _wId, 'StatusChanged',

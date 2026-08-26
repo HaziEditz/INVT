@@ -75,6 +75,8 @@ async function main() {
     BW_ADMIN_KEY: process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026',
     // Harness drives ZONE_DRIVERS.lastSeen directly; skip Firebase sync/recheck in heal.
     BW_SKIP_ZONE_SYNC_BEFORE_HEAL: '1',
+    // Pickup-resolution No Show wait gate — disable wall-clock for regression timing.
+    BW_NOSHOW_MIN_WAIT_MS: process.env.BW_NOSHOW_MIN_WAIT_MS || '0',
   };
 
   console.log('\n══════════════════════════════════════════════════════════');
