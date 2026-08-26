@@ -101,9 +101,20 @@ export function mergeClosedJobRecords(
   const st = closedJobStatusFromRecord(overlayRec);
   const terminalAt = closedJobTerminalAtMs(overlay, overlayRec) || closedJobTerminalAtMs(base);
 
+  // Prefer authentic booking origin from completedJobs (Website / Passenger App / Hail).
+  // allbookings rows often omit BookingSource after completion mutations, and
+  // jobFromFirebase then defaults source to 'dispatch' — without this merge,
+  // Closed Job "Created by" falsely shows Dispatcher for website bookings.
+  const preferSource = (primary: Job['source'], fallback: Job['source']): Job['source'] => {
+    if (primary && primary !== 'dispatch') return primary;
+    if (fallback && fallback !== 'dispatch') return fallback;
+    return primary || fallback || 'dispatch';
+  };
+
   const merged: Job = {
     ...base,
     status: st === 'Completed' || st === 'Cancelled' || st === 'No Show' ? st : base.status,
+    source: preferSource(overlay.source, base.source),
     pickAddress: pickString(overlay.pickAddress, base.pickAddress) || base.pickAddress,
     dropAddress: pickString(overlay.dropAddress, base.dropAddress) || base.dropAddress,
     passengerName: pickString(overlay.passengerName, base.passengerName) || base.passengerName,
@@ -167,14 +178,55 @@ export function serviceTypeDisplay(service: ServiceType | string): string {
   return map[String(service).toLowerCase()] || String(service);
 }
 
-export function closedJobSourceDisplay(job: Job): string {
-  const raw = String(
+export function closedJobSourceDisplay(
+  job: Job,
+  raw?: Record<string, unknown>,
+): string {
+  const fromRaw = raw
+    ? String(
+        raw.BookingSource ??
+          raw.bookingSource ??
+          raw.Source ??
+          raw.CreatedBy ??
+          raw.createdBy ??
+          raw.source ??
+          '',
+      ).trim()
+    : '';
+  // Ignore complete-API path tags that were wrongly written as BookingSource.
+  const rawOk =
+    fromRaw &&
+    !fromRaw.includes('/api/') &&
+    !/dispatch_complete/i.test(fromRaw)
+      ? fromRaw
+      : '';
+  const fromJob = String(
     (job as { BookingSource?: string }).BookingSource ||
       job.source ||
       (job as { createdBy?: string }).createdBy ||
       '',
   );
-  return sourceDisplayName(raw);
+  // Prefer authentic origin stamps from completedJobs raw over a defaulted job.source.
+  const prefer = (a: string, b: string): string => {
+    const al = a.toLowerCase();
+    const bl = b.toLowerCase();
+    const aDesk =
+      !a ||
+      al === 'dispatch' ||
+      al === 'desk' ||
+      al === 'phone' ||
+      al.includes('console');
+    const bDesk =
+      !b ||
+      bl === 'dispatch' ||
+      bl === 'desk' ||
+      bl === 'phone' ||
+      bl.includes('console');
+    if (a && !aDesk) return a;
+    if (b && !bDesk) return b;
+    return a || b || '';
+  };
+  return sourceDisplayName(prefer(rawOk, fromJob));
 }
 
 export function closedJobTypeDisplay(job: Job): string {

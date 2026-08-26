@@ -7,7 +7,7 @@ import { useUiStore } from '@/store/uiStore';
 import { useClosedJobDetail } from '@/hooks/useClosedJobDetail';
 import { ClosedJobRouteMap } from '@/components/jobs/ClosedJobRouteMap';
 import { generateJobPdf } from '@/lib/pdf';
-import { cn, serviceBorderColor, sourceDisplayName } from '@/lib/utils';
+import { cn, serviceBorderColor } from '@/lib/utils';
 import {
   closedJobDriverDisplay,
   closedJobFareDisplay,
@@ -167,9 +167,9 @@ function ClosedJobDetailBody({
       ? dash(job.cancelReason || String(raw.CancelReason ?? raw.cancelReason ?? ''))
       : null;
 
-  const srcName = closedJobSourceDisplay(job);
-  const srcLower = srcName.toLowerCase();
-  const isDesk = srcLower.includes('dispatch');
+  const srcName = closedJobSourceDisplay(job, raw as Record<string, unknown>);
+  // Desk only when the resolved display is Dispatcher (not substring-match on "dispatch").
+  const isDesk = srcName === 'Dispatcher';
   const createdBy =
     isDesk && job.dispatcherName?.trim()
       ? `${job.dispatcherName} (${srcName})`
@@ -204,7 +204,7 @@ function ClosedJobDetailBody({
           <Badge color={serviceBorderColor(job.serviceType)} className="!text-[9px] !py-0">
             {serviceTypeDisplay(job.serviceType)}
           </Badge>
-          <Badge className="!text-[9px] !py-0">{sourceDisplayName(job.source)}</Badge>
+          <Badge className="!text-[9px] !py-0">{srcName}</Badge>
           <Badge
             color={st === 'No Show' ? '#f97316' : st === 'Cancelled' ? '#ef4444' : '#22c55e'}
             className="!text-[9px] !py-0"
