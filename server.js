@@ -87,6 +87,7 @@ const {
   generatePickupPin,
   isPassengerAppBooking,
   jobPickupPin,
+  resolveFanoutBookingSource,
   needsPickupVerification,
   isPickupVerified,
   noShowDeadlineMs,
@@ -3536,7 +3537,8 @@ function _publicBooking(job) {
     distance:        job.distance || job.DistanceSnapshot || null,
     paymentMethod:   job.PaymentMethod || job.paymentMethod || '',
     notes:           job.Notes || job.notes || '',
-    bookingSource:   job.BookingSource || job.bookingSource || ''
+    bookingSource:   resolveFanoutBookingSource(job, { fallback: '' }),
+    pickupPin:       jobPickupPin(job) || '',
   };
 }
 
@@ -3984,7 +3986,11 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   }
 
   const bookingId = job.Id;
-  const _src = String(offerOpts.bookingSource || job.BookingSource || job.bookingSource || job.source || 'Dispatch Console');
+  const _src = resolveFanoutBookingSource(job, {
+    bookingSource: offerOpts.bookingSource,
+    deskFallback: 'Dispatch Console',
+  });
+  const _offerPin = jobPickupPin(job);
   const _svc = String(job.serviceType || job.ServiceType || 'taxi');
   const _stat = 'Offered';
   const _origStatus = offerOpts.originalStatus === 'manual' ? 'manual' : 'pending';
@@ -4014,6 +4020,9 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     jobCount:       1,
     jobServiceType: _svc,
     jobBookingSrc:  _src,
+    BookingSource:  _src,
+    PickupPin:      _offerPin || undefined,
+    pickupPin:      _offerPin || undefined,
     DispatcherName: String(job.DispatcherName || job.dispatcherName || ''),
     dispatcherName: String(job.DispatcherName || job.dispatcherName || ''),
     vehicleId:      vid,
@@ -4119,6 +4128,7 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     ServiceType:     _svc,
     serviceType:     _svc,
     BookingSource:   _src,
+    Source:          _src,
     DispatcherName:  String(job.DispatcherName || job.dispatcherName || ''),
     dispatcherName:  String(job.DispatcherName || job.dispatcherName || ''),
     paymentMethod:   notifPayload.paymentMethod,
@@ -4134,6 +4144,10 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     updatedAt:       _FB_SERVER_TIMESTAMP,
     eventType:       'new_offer',
   };
+  if (_offerPin) {
+    _pjPatch.PickupPin = _offerPin;
+    _pjPatch.pickupPin = _offerPin;
+  }
   if (_pickLL) _pjPatch.pickupLocation = { address: notifPayload.jobpickup, lat: _pickLL.lat, lng: _pickLL.lng };
   if (_dropLL) _pjPatch.dropoffLocation = { address: notifPayload.jobdropoff, lat: _dropLL.lat, lng: _dropLL.lng };
 
@@ -5470,10 +5484,18 @@ async function acceptBooking(opts) {
     _fanPatch.DriverName = _acceptDriverName;
     _fanPatch.driverName = _acceptDriverName;
   }
+  const _acceptSrc = resolveFanoutBookingSource(job, { fallback: '' });
+  if (_acceptSrc) {
+    _fanPatch.BookingSource = _acceptSrc;
+    _fanPatch.Source = _acceptSrc;
+  }
   const _acceptPin = jobPickupPin(job);
   if (_acceptPin) {
     _fanPatch.PickupPin = _acceptPin;
     _fanPatch.pickupPin = _acceptPin;
+  }
+  if (job.CreatedBy || job.createdBy) {
+    _fanPatch.CreatedBy = job.CreatedBy || job.createdBy;
   }
   if (_cid) {
     try {
@@ -6109,6 +6131,7 @@ function _buildAllbookingsMirrorFromJob(job) {
     driverName: String(job.DriverName || job.driverName || _driverDisplayNameFromZone(driverId) || ''),
     PickupPin: jobPickupPin(job) || '',
     pickupPin: jobPickupPin(job) || '',
+    pickupVerifiedAt: job.pickupVerifiedAt || job.PickupVerifiedAt || '',
     PassengerName: normed.name,
     Name: normed.name,
     PhoneNo: normed.phone,
@@ -6134,7 +6157,9 @@ function _buildAllbookingsMirrorFromJob(job) {
     ScheduledFor: job.ScheduledFor || job.scheduledFor || null,
     Pickingtime: job.Pickingtime || job.BookingDateTime || '',
     BookingDateTime: job.BookingDateTime || job.Pickingtime || '',
-    BookingSource: job.BookingSource || job.source || 'dispatch',
+    BookingSource: resolveFanoutBookingSource(job, { deskFallback: 'Dispatch Console' }),
+    Source: resolveFanoutBookingSource(job, { deskFallback: 'Dispatch Console' }),
+    CreatedBy: job.CreatedBy || job.createdBy || '',
     DispatcherName: job.DispatcherName || job.dispatcherName || '',
     dispatcherName: job.DispatcherName || job.dispatcherName || '',
     TarriffId: job.TarriffId ?? job.TariffId ?? job.tariffId ?? '',
@@ -7019,7 +7044,11 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       ScheduledFor: job.ScheduledFor || job.scheduledFor || null,
       Pickingtime: job.Pickingtime || job.BookingDateTime || '',
       BookingDateTime: job.BookingDateTime || job.Pickingtime || '',
-      BookingSource: job.BookingSource || job.source || 'dispatch',
+      BookingSource: resolveFanoutBookingSource(job, { deskFallback: 'Dispatch Console' }),
+      Source: resolveFanoutBookingSource(job, { deskFallback: 'Dispatch Console' }),
+      CreatedBy: job.CreatedBy || job.createdBy || '',
+      PickupPin: jobPickupPin(job) || '',
+      pickupPin: jobPickupPin(job) || '',
       DispatcherName: job.DispatcherName || job.dispatcherName || '',
       dispatcherName: job.DispatcherName || job.dispatcherName || '',
       Name: normed.name,
@@ -9137,6 +9166,10 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         'giftCardCode', 'GiftCardCode',
         'stripeSessionId', 'stripeChargeId', 'isPrePaid', 'isPrepaid',
         'Fare', 'fare', 'TotalFare', 'CustomeRate', 'TarriffId', 'isFixedPrice',
+        // §FIX source/PIN — never wipe passenger origin or pickup PIN on force SET
+        'BookingSource', 'bookingSource', 'Source', 'source', 'CreatedBy', 'createdBy',
+        'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'PickupVerifiedAt',
+        'imComingAt', 'ImComingAt', 'noShowDeadlineAt',
       ];
       for (const _pk of _preserveKeys) {
         const _cur = payload[_pk];
@@ -9144,6 +9177,28 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         const _curEmpty = _cur == null || (typeof _cur === 'string' && !_cur.trim());
         const _prevUseful = _prev != null && !(typeof _prev === 'string' && !_prev.trim());
         if (_curEmpty && _prevUseful) payload[_pk] = _prev;
+      }
+      // Desk defaults must not overwrite a real passenger origin / PIN already on the node.
+      const _prevSrc = resolveFanoutBookingSource(existing, { fallback: '' });
+      const _curSrc = resolveFanoutBookingSource(payload, { fallback: '' });
+      const _curDesk =
+        !_curSrc ||
+        /^dispatch$/i.test(_curSrc) ||
+        /dispatch console/i.test(_curSrc);
+      const _prevPax =
+        /passenger/i.test(_prevSrc) ||
+        /^APP$/i.test(String(existing.CreatedBy || existing.createdBy || ''));
+      if (_prevPax && _curDesk) {
+        payload.BookingSource = _prevSrc || 'PassengerApp';
+        payload.Source = payload.BookingSource;
+        if (existing.CreatedBy || existing.createdBy) {
+          payload.CreatedBy = existing.CreatedBy || existing.createdBy;
+        }
+      }
+      const _prevPin = String(existing.PickupPin || existing.pickupPin || '').trim();
+      if (_prevPin && !String(payload.PickupPin || payload.pickupPin || '').trim()) {
+        payload.PickupPin = _prevPin;
+        payload.pickupPin = _prevPin;
       }
     }
     await firebaseDbSet(`allbookings/${cid}/${bookingId}`, payload, tok)
@@ -16485,6 +16540,8 @@ const server = http.createServer(async (req, res) => {
         'BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore',
         'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt', 'Status',
         'manualOffer', 'vehicleType', 'Passengers', 'PassengersNo', 'BookingSource',
+        'Source', 'CreatedBy', 'createdBy',
+        'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'imComingAt', 'noShowDeadlineAt',
       ];
       for (const k of allowed) {
         if (patch[k] !== undefined) job[k] = patch[k];
@@ -19857,7 +19914,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (_pcDropoff.address && !_pcJob.DropAddress) _pcJob.DropAddress = _pcDropoff.address;
       if (_pcPickup.lat  && !_pcJob.PickLatLng) _pcJob.PickLatLng  = `${_pcPickup.lat},${_pcPickup.lng  || 0}`;
       if (_pcDropoff.lat && !_pcJob.DropLatLng) _pcJob.DropLatLng  = `${_pcDropoff.lat},${_pcDropoff.lng || 0}`;
-      if (!_pcJob.BookingSource || _pcJob.BookingSource === 'passenger') _pcJob.BookingSource = 'Website';
+      // §FIX — never rewrite passenger-app origin to Website on payment confirm
+      const _pcIsPax =
+        isPassengerAppBooking(_pcJob) ||
+        String(_pcBody.source || _pcBody.BookingSource || '').toLowerCase().includes('passenger') ||
+        String(_pcBody.CreatedBy || '').toUpperCase() === 'APP';
+      if (!_pcJob.BookingSource) {
+        _pcJob.BookingSource = _pcIsPax ? 'PassengerApp' : 'Website';
+      } else if (
+        !_pcIsPax &&
+        String(_pcJob.BookingSource).toLowerCase() === 'passenger'
+      ) {
+        // Legacy: bare "passenger" without app markers on web confirm path → Website
+        _pcJob.BookingSource = 'Website';
+      }
+      if (_pcIsPax && !jobPickupPin(_pcJob)) {
+        const _pin = String(_pcBody.PickupPin || _pcBody.pickupPin || '').trim() || generatePickupPin();
+        _pcJob.PickupPin = _pin;
+        _pcJob.pickupPin = _pin;
+      }
       saveJobStore();
       console.log(`[payment/confirm] jobStore job #${_pcJobId} → paymentStatus:'${_pcStatus}' BookingSource:'${_pcJob.BookingSource}'`);
     } else {
@@ -19867,14 +19942,41 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // 2. Build a schema-complete pendingjobs record.
     //    Every field the dispatcher pipeline needs is set EXPLICITLY — no raw spread
     //    of allbookings which may have different casing or missing fields (Bug 1 root cause).
+    const _pcResolvedSrc = resolveFanoutBookingSource(
+      _pcJob || {
+        BookingSource: _pcBody.BookingSource || _pcBody.source,
+        CreatedBy: _pcBody.CreatedBy,
+        PickupPin: _pcBody.PickupPin || _pcBody.pickupPin,
+      },
+      {
+        fallback:
+          isPassengerAppBooking(_pcJob) ||
+          String(_pcBody.CreatedBy || '').toUpperCase() === 'APP' ||
+          String(_pcBody.BookingSource || _pcBody.source || '')
+            .toLowerCase()
+            .includes('passenger')
+            ? 'PassengerApp'
+            : 'Website',
+      },
+    );
+    const _pcIsWebSrc = /web/i.test(_pcResolvedSrc) && !/passenger/i.test(_pcResolvedSrc);
+    const _pcPinKeep =
+      (!_pcIsWebSrc &&
+        (jobPickupPin(_pcJob) ||
+          String(_pcBody.PickupPin || _pcBody.pickupPin || '').trim())) ||
+      '';
     const _pcFbJob = {
       BookingId:      _pcJobId,
       companyId:      _pcCid,
       CompanyId:      _pcCid,
       Status:         'Pending',
       status:         'pending',
-      BookingSource:  'Website',
-      WebBooking:     true,
+      BookingSource:  _pcResolvedSrc,
+      Source:         _pcResolvedSrc,
+      CreatedBy:      (_pcJob && (_pcJob.CreatedBy || _pcJob.createdBy)) || _pcBody.CreatedBy || (_pcIsWebSrc ? 'WEB' : 'APP'),
+      WebBooking:     _pcIsWebSrc,
+      PickupPin:      _pcPinKeep || undefined,
+      pickupPin:      _pcPinKeep || undefined,
       paymentStatus:  _pcStatus,
       PaymentStatus:  _pcStatus,
       paymentMethod:  _pcMethod,
@@ -19908,8 +20010,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         firebaseDbPatch(`allbookings/${_pcCid}/${_pcJobId}`, {
           paymentStatus:  _pcStatus,
           PaymentStatus:  _pcStatus,
-          BookingSource:  'Website',
-          WebBooking:     true,
+          BookingSource:  _pcResolvedSrc,
+          Source:         _pcResolvedSrc,
+          WebBooking:     _pcIsWebSrc,
+          PickupPin:      _pcPinKeep || undefined,
+          pickupPin:      _pcPinKeep || undefined,
           stripeChargeId: _pcChargeId || null,
           updatedAt:      new Date().toISOString(),
         }, tok),
@@ -20049,9 +20154,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (_swDropAddr && !_swJob.DropAddress) _swJob.DropAddress = _swDropAddr;
       if (_swPickLat && !_swJob.PickLatLng)   _swJob.PickLatLng  = `${_swPickLat},${_swPickLng}`;
       if (_swDropLat && !_swJob.DropLatLng)   _swJob.DropLatLng  = `${_swDropLat},${_swDropLng}`;
-      if (!_swJob.BookingSource || _swJob.BookingSource === 'passenger') _swJob.BookingSource = 'Website';
+      // §FIX — preserve passenger-app origin; only default Website when unknown / web
+      const _swIsPax = isPassengerAppBooking(_swJob);
+      if (!_swJob.BookingSource) {
+        _swJob.BookingSource = _swIsPax ? 'PassengerApp' : 'Website';
+      }
+      if (_swIsPax && !jobPickupPin(_swJob)) {
+        _swJob.PickupPin = generatePickupPin();
+        _swJob.pickupPin = _swJob.PickupPin;
+      }
       saveJobStore();
-      console.log(`[stripe/webhook] jobStore job #${_swBookingId} → paymentStatus:'paid' (charge=${_swChargeId} $${_swAmountPaid})`);
+      console.log(`[stripe/webhook] jobStore job #${_swBookingId} → paymentStatus:'paid' BookingSource:'${_swJob.BookingSource}' (charge=${_swChargeId} $${_swAmountPaid})`);
     } else {
       console.warn(`[stripe/webhook] job #${_swBookingId} (cid=${_swCid}) not found in jobStore — Firebase-only update`);
     }
@@ -20059,14 +20172,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // 2. Write schema-complete pendingjobs record.
     //    Replaces the old "spread raw allbookings into pendingjobs" pattern that was
     //    the root cause of Bug 1 — every dispatcher-required field is set explicitly.
+    const _swResolvedSrc = resolveFanoutBookingSource(_swJob, {
+      fallback: isPassengerAppBooking(_swJob) ? 'PassengerApp' : 'Website',
+    });
+    const _swIsWebSrc = /web/i.test(_swResolvedSrc) && !/passenger/i.test(_swResolvedSrc);
+    const _swPinKeep = (!_swIsWebSrc && jobPickupPin(_swJob)) || '';
     const _swFbJob = {
       BookingId:      _swBookingId,
       companyId:      _swCid,
       CompanyId:      _swCid,
       Status:         'Pending',
       status:         'pending',
-      BookingSource:  'Website',
-      WebBooking:     true,
+      BookingSource:  _swResolvedSrc,
+      Source:         _swResolvedSrc,
+      CreatedBy:      (_swJob && (_swJob.CreatedBy || _swJob.createdBy)) || (_swIsWebSrc ? 'WEB' : 'APP'),
+      WebBooking:     _swIsWebSrc,
+      PickupPin:      _swPinKeep || undefined,
+      pickupPin:      _swPinKeep || undefined,
       paymentStatus:  'paid',
       PaymentStatus:  'paid',
       paymentMethod:  'card',
@@ -20097,8 +20219,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       paymentStatus:  'paid',
       PaymentStatus:  'paid',
       Status:         'Pending',
-      BookingSource:  'Website',
-      WebBooking:     true,
+      BookingSource:  _swResolvedSrc,
+      Source:         _swResolvedSrc,
+      WebBooking:     _swIsWebSrc,
+      PickupPin:      _swPinKeep || undefined,
+      pickupPin:      _swPinKeep || undefined,
       stripeChargeId: _swChargeId || null,
       amountPaid:     _swAmountPaid || null,
       updatedAt:      new Date().toISOString(),
@@ -25488,9 +25613,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _sPin = (!_isWebBk)
               ? String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() || generatePickupPin()
               : '';
+            const _sSrc = _isWebBk
+              ? 'Website'
+              : resolveFanoutBookingSource(_ipjJob, { fallback: 'PassengerApp' });
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
-              BookingStatus: 'Scheduled', BookingSource: _isWebBk ? 'Website' : 'passenger',
+              BookingStatus: 'Scheduled', BookingSource: _sSrc,
+              CreatedBy: _ipjJob.CreatedBy || _ipjJob.createdBy || (_isWebBk ? 'WEB' : 'APP'),
               updateSeq: 1,
               createdAt: Date.now(),
               Name:          _sn.name,
@@ -25577,10 +25706,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _wPin = (!_isWebBkW)
               ? String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() || generatePickupPin()
               : '';
+            const _wSrc = _isWebBkW
+              ? 'Website'
+              : resolveFanoutBookingSource(_ipjJob, { fallback: 'PassengerApp' });
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
               BookingStatus: _wStatus,
-              BookingSource: _isWebBkW ? 'Website' : 'passenger',
+              BookingSource: _wSrc,
+              CreatedBy: _ipjJob.CreatedBy || _ipjJob.createdBy || (_isWebBkW ? 'WEB' : 'APP'),
               updateSeq: 1,
               Name:          _wn.name,
               PhoneNo:       _wn.phone,
@@ -27843,6 +27976,33 @@ function _mergeFbIntoJob(job, fb) {
     job.isTotalMobility = true;
     job.isTM = true;
   }
+  // Preserve passenger origin + pickup PIN from Firebase into jobStore
+  const _srcMerged = resolveFanoutBookingSource(
+    { BookingSource: fb.BookingSource, Source: fb.Source, CreatedBy: fb.CreatedBy, pickupPin: fb.PickupPin || fb.pickupPin },
+    { fallback: '' },
+  );
+  const _curSrc = String(job.BookingSource || job.source || '').trim();
+  const _curIsDeskDefault =
+    !_curSrc ||
+    /^dispatch$/i.test(_curSrc) ||
+    /dispatch console/i.test(_curSrc);
+  if (_srcMerged && (_curIsDeskDefault || !job.BookingSource)) {
+    job.BookingSource = _srcMerged;
+  }
+  if (fb.CreatedBy || fb.createdBy) {
+    job.CreatedBy = job.CreatedBy || fb.CreatedBy || fb.createdBy;
+  }
+  const _pinMerged = String(fb.PickupPin || fb.pickupPin || '').trim();
+  if (_pinMerged && !jobPickupPin(job)) {
+    job.PickupPin = _pinMerged;
+    job.pickupPin = _pinMerged;
+  }
+  if (fb.pickupVerifiedAt || fb.PickupVerifiedAt) {
+    job.pickupVerifiedAt = job.pickupVerifiedAt || fb.pickupVerifiedAt || fb.PickupVerifiedAt;
+  }
+  if (fb.imComingAt || fb.ImComingAt) {
+    job.imComingAt = job.imComingAt || fb.imComingAt || fb.ImComingAt;
+  }
   return job;
 }
 
@@ -27895,7 +28055,11 @@ function _fbRecToJob(bid, cid, fb, fallbackStatus) {
     Passengers: (norm && norm.passengers) || fb.Passengers || fb.passengers || 1,
     serviceType: (norm && norm.serviceType) || fb.serviceType || fb.ServiceType || 'taxi',
     BookingSource:
+      resolveFanoutBookingSource(fb, { fallback: '' }) ||
       fb.BookingSource || fb.Source || fb.source || fb.bookingSource || '',
+    CreatedBy: fb.CreatedBy || fb.createdBy || '',
+    PickupPin: String(fb.PickupPin || fb.pickupPin || '').trim() || '',
+    pickupPin: String(fb.PickupPin || fb.pickupPin || '').trim() || '',
     PaymentMethod:
       (norm && norm.paymentMethod) || fb.PaymentMethod || fb.paymentMethod || '',
     paymentMethod:

@@ -7,6 +7,7 @@ import {
   generatePickupPin,
   needsPickupVerification,
   computeNoShowWaitCharge,
+  resolveFanoutBookingSource,
 } from '../../lib/pickupResolution.cjs';
 
 test('pickupResolution helpers: pin + no-show wait charge', () => {
@@ -24,6 +25,63 @@ test('pickupResolution helpers: pin + no-show wait charge', () => {
   assert.match(charge.reason, /No Show, waited \d+ minutes/);
   assert.equal(charge.waitingCharge, Math.round(charge.waitMinutes * 0.8 * 100) / 100);
   assert.equal(charge.extended, true);
+});
+
+test('resolveFanoutBookingSource: never invents DESK for passenger/PIN jobs', () => {
+  assert.equal(
+    resolveFanoutBookingSource({ BookingSource: 'PassengerApp' }),
+    'PassengerApp',
+  );
+  assert.equal(
+    resolveFanoutBookingSource({ BookingSource: 'passenger' }),
+    'PassengerApp',
+  );
+  assert.equal(resolveFanoutBookingSource({ CreatedBy: 'APP' }), 'PassengerApp');
+  assert.equal(
+    resolveFanoutBookingSource({ PickupPin: '4242' }),
+    'PassengerApp',
+  );
+  assert.equal(
+    resolveFanoutBookingSource({}),
+    'Dispatch Console',
+  );
+  assert.equal(
+    resolveFanoutBookingSource({ BookingSource: 'Dispatch Console' }),
+    'Dispatch Console',
+  );
+  // Must not prefer /api/complete junk over real passenger source
+  assert.equal(
+    resolveFanoutBookingSource({
+      BookingSource: '/api/job/complete',
+      Source: 'PassengerApp',
+    }),
+    'PassengerApp',
+  );
+});
+
+test('accept/offer fanout preserves BookingSource+PickupPin onto allbookings', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness({ fresh: true });
+  await prepareCleanDispatch(h);
+  const driverId = h.driverIds[0];
+  await h.ensureDriverReady(driverId);
+  const jobId = await h.createAsapJob('src-pin-fanout');
+  await h.mutateJobStore(jobId, {
+    BookingSource: 'PassengerApp',
+    CreatedBy: 'APP',
+    PickupPin: '7373',
+    pickupPin: '7373',
+  });
+  await h.assignAccept(jobId, driverId);
+
+  const ab = await h.firebasePeek(`allbookings/${h.companyId}/${jobId}`);
+  assert.ok(ab && typeof ab === 'object', 'allbookings row missing');
+  const src = String(ab.BookingSource || ab.Source || '');
+  const pin = String(ab.PickupPin || ab.pickupPin || '');
+  assert.match(src, /passenger/i, `expected passenger source, got ${src}`);
+  assert.equal(pin, '7373', `expected PIN 7373, got ${pin}`);
+  assert.ok(!/dispatch/i.test(src), `must not be DESK/dispatch: ${src}`);
+  await prepareCleanDispatch(h);
 });
 
 test('dispatch jobs without pin: On Board still works (no gate)', async () => {
