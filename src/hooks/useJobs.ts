@@ -25,6 +25,8 @@ import {
   jobStatusFromFirebaseRecord,
   jobTabForStatus,
   normalizeJobStatus,
+  firebaseRecordIsUnpaidCardHold,
+  isUnpaidCardHold,
 } from '@/lib/jobStatusAuthority';
 import {
   isClosedJobRecord,
@@ -1231,6 +1233,7 @@ export function useJobs(companyId: string | null) {
     };
 
     const notifyNewJob = (job: Job) => {
+      if (isUnpaidCardHold(job)) return;
       if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
       notifyNewBooking(job.id);
     };
@@ -1241,6 +1244,12 @@ export function useJobs(companyId: string | null) {
 
       const job = jobFromFirebase(key, rec, companyId);
       if (!job || isBlacklisted(job.id)) return;
+
+      if (firebaseRecordIsUnpaidCardHold(rec) || isUnpaidCardHold(job)) {
+        pendingRef.current.delete(jobId);
+        removeJob(job.id);
+        return;
+      }
 
       const pendingEffective = jobStatusFromFirebaseRecord(rec);
       if (
@@ -1432,6 +1441,22 @@ export function useJobs(companyId: string | null) {
               effectiveStatus = abRaw;
             }
             if (shouldSkipStaleLiveAllbookingsIngest(jobId, effectiveStatus, rec)) {
+              continue;
+            }
+            // Card holds must not enter U-A (or any live pool) until payment is confirmed.
+            if (firebaseRecordIsUnpaidCardHold(rec) || isUnpaidCardHold(job)) {
+              pendingRef.current.delete(jobId);
+              bookingsRef.current.delete(jobId);
+              if (useJobStore.getState().jobs.some((j) => j.id === jobId)) {
+                removeJob(jobId);
+              }
+              traceAllbookingsIngest(jobId, 'skipped unpaidCardHold', {
+                effectiveStatus,
+                paymentStatus: rec.paymentStatus ?? rec.PaymentStatus ?? null,
+                paymentMethod: rec.PaymentMethod ?? rec.paymentMethod ?? null,
+                bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                statusRaw: rec.Status ?? rec.status ?? null,
+              });
               continue;
             }
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {

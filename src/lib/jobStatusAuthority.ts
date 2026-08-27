@@ -89,7 +89,8 @@ export function normalizeJobStatus(raw: string): JobStatus {
   // Passenger-app ASAP pool uses Waiting until a driver is offered — treat as Pending
   // so U-A pink/flash + overdue alert apply (same as website Pending).
   if (s === 'Waiting' || s === 'waiting' || s === 'WAITING') return 'Pending';
-  // Card hold — not yet paid; must NOT appear in U-A as live Pending.
+  // Card hold — not yet paid. Still normalized for field compatibility, but
+  // isUnpaidCardHold() keeps these OUT of the U-A pool regardless of label.
   if (
     s === 'PendingPayment' ||
     s === 'pendingpayment' ||
@@ -273,8 +274,68 @@ export function jobTabForStatus(job: Pick<Job, 'status' | 'driverId' | 'serviceT
   return tab;
 }
 
-export function isUaJob(job: Pick<Job, 'status' | 'driverId' | 'serviceType' | 'id'>): boolean {
+export function isUaJob(
+  job: Pick<Job, 'status' | 'driverId' | 'serviceType' | 'id'> &
+    Partial<Pick<Job, 'paymentStatus' | 'paymentType'>>,
+): boolean {
+  if (isUnpaidCardHold(job)) return false;
   return jobTabForStatus(job) === 'ua';
+}
+
+/**
+ * Unpaid card / Stripe holds must never appear in dispatch U-A (or any live tab),
+ * even when Status was remapped to Scheduled / Waiting for compatibility.
+ */
+export function isUnpaidCardHold(
+  job: Partial<Pick<Job, 'status' | 'paymentStatus' | 'paymentType'>> & {
+    paymentMethod?: string;
+    isPrePaid?: boolean;
+    IsPrePaid?: boolean;
+  },
+): boolean {
+  const rawSt = String(job.status ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  if (rawSt === 'pendingpayment' || rawSt === 'paymentpending') return true;
+
+  const ps = String(job.paymentStatus ?? '')
+    .trim()
+    .toLowerCase();
+  if (ps === 'paid' || ps === 'confirmed' || ps === 'captured' || ps === 'succeeded') return false;
+  if (job.isPrePaid || job.IsPrePaid) return false;
+  if (ps !== 'pending' && ps !== 'unpaid' && ps !== 'requires_payment' && ps !== 'requirespayment') {
+    return false;
+  }
+
+  const pay = String(job.paymentType ?? job.paymentMethod ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  return (
+    pay === 'card' ||
+    pay === 'credit' ||
+    pay === 'creditcard' ||
+    pay === 'stripe' ||
+    pay.includes('stripe') ||
+    pay === 'online'
+  );
+}
+
+/** Firebase allbookings / pendingjobs record variant of isUnpaidCardHold. */
+export function firebaseRecordIsUnpaidCardHold(rec: Record<string, unknown>): boolean {
+  const st = String(rec.Status ?? rec.status ?? rec.BookingStatus ?? rec.bookingStatus ?? '');
+  const ps = String(rec.paymentStatus ?? rec.PaymentStatus ?? '');
+  const pay = String(
+    rec.PaymentMethod ?? rec.paymentMethod ?? rec.PaymentType ?? rec.paymentType ?? '',
+  );
+  return isUnpaidCardHold({
+    status: st as Job['status'],
+    paymentStatus: ps,
+    paymentType: pay,
+    paymentMethod: pay,
+    isPrePaid: !!(rec.isPrePaid || rec.IsPrePaid || rec.isPrepaid),
+  });
 }
 
 function queueEditPinDebug(

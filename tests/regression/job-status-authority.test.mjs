@@ -33,6 +33,8 @@ import {
   statusBadgeStyle,
   statusRank,
   uaStatusBadge,
+  isUnpaidCardHold,
+  firebaseRecordIsUnpaidCardHold,
 } from '../lib/jobStatusAuthority.mjs';
 
 function job(partial) {
@@ -78,6 +80,45 @@ test('authority: normalizeJobStatus aliases', () => {
   assert.equal(normalizeJobStatus('On Board'), 'Active');
   assert.equal(normalizeJobStatus('Assigned'), 'Assigned');
   assert.equal(normalizeJobStatus('No Show'), 'No Show');
+  assert.equal(normalizeJobStatus('PendingPayment'), 'Scheduled');
+  assert.equal(normalizeJobStatus('PaymentPending'), 'Scheduled');
+});
+
+test('authority: unpaid card holds are never U-A', () => {
+  assert.equal(
+    isUaJob(job({ status: 'PendingPayment', paymentStatus: 'pending', paymentType: 'card' })),
+    false,
+  );
+  assert.equal(
+    isUaJob(job({ status: 'Scheduled', paymentStatus: 'pending', paymentType: 'card' })),
+    false,
+  );
+  assert.equal(
+    isUaJob(job({ status: 'Pending', paymentStatus: 'pending', paymentType: 'card' })),
+    false,
+  );
+  assert.equal(
+    isUaJob(job({ status: 'Pending', paymentStatus: 'paid', paymentType: 'card' })),
+    true,
+  );
+  assert.equal(isUaJob(job({ status: 'Pending', paymentType: 'cash' })), true);
+  assert.equal(
+    firebaseRecordIsUnpaidCardHold({
+      Status: 'PendingPayment',
+      paymentStatus: 'pending',
+      PaymentMethod: 'card',
+    }),
+    true,
+  );
+  assert.equal(
+    firebaseRecordIsUnpaidCardHold({
+      Status: 'Waiting',
+      paymentStatus: 'paid',
+      PaymentMethod: 'card',
+    }),
+    false,
+  );
+  assert.equal(isUnpaidCardHold({ status: 'Pending', paymentType: 'cash' }), false);
 });
 
 // ─── Critical queue tab matrix ───────────────────────────────────────────────

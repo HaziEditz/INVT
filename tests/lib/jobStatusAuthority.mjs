@@ -64,6 +64,15 @@ export function normalizeJobStatus(raw) {
   if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
   if (s === 'pending' || s === 'PENDING') return 'Pending';
   if (s === 'Waiting' || s === 'waiting' || s === 'WAITING') return 'Pending';
+  // Card hold — remapped for field compatibility; isUnpaidCardHold keeps it out of U-A.
+  if (
+    s === 'PendingPayment' ||
+    s === 'pendingpayment' ||
+    s === 'PaymentPending' ||
+    s === 'paymentpending'
+  ) {
+    return 'Scheduled';
+  }
   if (s === 'queued' || s === 'QUEUED') return 'Queued';
   if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
   return s;
@@ -199,7 +208,53 @@ export function jobTabForStatus(job) {
 }
 
 export function isUaJob(job) {
+  if (isUnpaidCardHold(job)) return false;
   return jobTabForStatus(job) === 'ua';
+}
+
+export function isUnpaidCardHold(job) {
+  const rawSt = String(job?.status ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  if (rawSt === 'pendingpayment' || rawSt === 'paymentpending') return true;
+
+  const ps = String(job?.paymentStatus ?? '')
+    .trim()
+    .toLowerCase();
+  if (ps === 'paid' || ps === 'confirmed' || ps === 'captured' || ps === 'succeeded') return false;
+  if (job?.isPrePaid || job?.IsPrePaid) return false;
+  if (ps !== 'pending' && ps !== 'unpaid' && ps !== 'requires_payment' && ps !== 'requirespayment') {
+    return false;
+  }
+
+  const pay = String(job?.paymentType ?? job?.paymentMethod ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  return (
+    pay === 'card' ||
+    pay === 'credit' ||
+    pay === 'creditcard' ||
+    pay === 'stripe' ||
+    pay.includes('stripe') ||
+    pay === 'online'
+  );
+}
+
+export function firebaseRecordIsUnpaidCardHold(rec) {
+  const st = String(rec.Status ?? rec.status ?? rec.BookingStatus ?? rec.bookingStatus ?? '');
+  const ps = String(rec.paymentStatus ?? rec.PaymentStatus ?? '');
+  const pay = String(
+    rec.PaymentMethod ?? rec.paymentMethod ?? rec.PaymentType ?? rec.paymentType ?? '',
+  );
+  return isUnpaidCardHold({
+    status: st,
+    paymentStatus: ps,
+    paymentType: pay,
+    paymentMethod: pay,
+    isPrePaid: !!(rec.isPrePaid || rec.IsPrePaid || rec.isPrepaid),
+  });
 }
 
 export function pinQueuedOptimisticJob(baseJob, applied) {

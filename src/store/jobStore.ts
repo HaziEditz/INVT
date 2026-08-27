@@ -2,7 +2,7 @@ import { mergeJobUpdate } from '@/lib/mergeJob';
 import { create } from 'zustand';
 import type { Job, JobTab } from '@/types/job';
 import { jobScheduledTime } from '@/types/job';
-import { ACTIVE_BOOKING_STATUSES, jobTabForStatus, normalizeJobStatus } from '@/lib/jobStatusAuthority';
+import { ACTIVE_BOOKING_STATUSES, jobTabForStatus, normalizeJobStatus, isUnpaidCardHold } from '@/lib/jobStatusAuthority';
 import { isCompletedJobSuppressed, queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
 import {
   EMPTY_LIVE_JOB_FILTERS,
@@ -58,7 +58,7 @@ export function filterJobsForTab(
   filters: LiveJobFilters = EMPTY_LIVE_JOB_FILTERS,
   zones: CompanyZone[] = [],
 ): Job[] {
-  const tabbed = jobs.filter((j) => jobTabForStatus(j) === tab);
+  const tabbed = jobs.filter((j) => jobTabForStatus(j) === tab && !isUnpaidCardHold(j));
   const filtered = hasActiveLiveJobFilters(filters)
     ? filterLiveJobs(tabbed, filters, zones)
     : tabbed;
@@ -71,7 +71,7 @@ export function countJobsForTab(
   filters: LiveJobFilters = EMPTY_LIVE_JOB_FILTERS,
   zones: CompanyZone[] = [],
 ): { shown: number; total: number } {
-  const tabbed = jobs.filter((j) => jobTabForStatus(j) === tab);
+  const tabbed = jobs.filter((j) => jobTabForStatus(j) === tab && !isUnpaidCardHold(j));
   const total = tabbed.length;
   const shown = hasActiveLiveJobFilters(filters)
     ? filterLiveJobs(tabbed, filters, zones).length
