@@ -1687,11 +1687,13 @@ function _scheduleTerminalFirebaseCleanup(job, cid, vehHint, drvHint, sourceTag)
   })();
 }
 
-function _onlineTripClearPatch(vehiclestatus) {
+function _onlineTripClearPatch(vehiclestatus, extras) {
   const vs = vehiclestatus || 'Available';
-  return {
+  return Object.assign({
     currentJobId: null,
     jobId:        null,
+    BookingId:    null,
+    bookingId:    null,
     joboffer:     0,
     jobpickup:    '',
     jobdropoff:   '',
@@ -1699,7 +1701,7 @@ function _onlineTripClearPatch(vehiclestatus) {
     jobname:      '',
     vehiclestatus: vs,
     VehicleStatus: vs,
-  };
+  }, extras && typeof extras === 'object' ? extras : {});
 }
 
 /**
@@ -1715,12 +1717,12 @@ async function _forceOnlinePresenceAvailable(cid, vehId, source) {
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return { ok: false };
-    const patch = _onlineTripClearPatch('Available');
+    const patch = _onlineTripClearPatch('Available', { jobCount: 0 });
     await firebaseDbPatch(`online/${_cid}/${_vid}`, patch, tok)
       .catch((e) => console.warn(`  [${_src}] online/${_cid}/${_vid} Available failed: ${e && e.message}`));
     await firebaseDbPatch(`online/${_cid}/${_vid}/current`, patch, tok)
       .catch((e) => console.warn(`  [${_src}] online/${_cid}/${_vid}/current Available failed: ${e && e.message}`));
-    console.log(`  [${_src}] online/${_cid}/${_vid} → Available (forced)`);
+    console.log(`  [${_src}] online/${_cid}/${_vid} → Available (forced, jobCount=0)`);
     return { ok: true };
   } catch (e) {
     console.warn(`  [${_src}] force Available failed: ${e && e.message}`);
@@ -1740,9 +1742,11 @@ async function _clearOnlineTripFieldsForBooking(cid, vehId, bookingId, logTag) {
   const _clearIfMatch = async (url, label) => {
     const g = await fbRequest(`${url}?auth=${auth}`, 'GET', null);
     const node = g.body || {};
-    const cur = String(node.currentJobId || node.jobId || node.joboffer || '');
+    // Only match booking pointers — never treat joboffer flags as a booking id
+    // (joboffer:1 would skip clear and leave sticky currentJobId / JOBS badge).
+    const cur = String(node.currentJobId || node.jobId || node.BookingId || node.bookingId || '');
     if (cur && cur !== _bId) return false;
-    await fbRequest(`${url}?auth=${auth}`, 'PATCH', _onlineTripClearPatch('Available'));
+    await fbRequest(`${url}?auth=${auth}`, 'PATCH', _onlineTripClearPatch('Available', { jobCount: 0 }));
     console.log(`${_tag} ${label} cleared (was #${_bId})`);
     return true;
   };
@@ -3411,31 +3415,34 @@ async function cancelBooking(opts) {
           driverFreed = _ds.driverFreed;
           driverState = _ds.driverState;
           queueNo = _ds.queueNo;
-          if (_isNoShow) {
-            const _vidForPresence = _rVid || _vehId;
-            const _hasOtherTrip = _driverHasActiveTripJob(_rDrv, _cid, bookingId);
-            if (!_hasOtherTrip && _vidForPresence) {
-              await _forceOnlinePresenceAvailable(_cid, _vidForPresence, `${source}/no-show`);
-              if (_cid && _rDrv) {
-                applyZoneQueueSyncForDriver(_cid, _rDrv, _vidForPresence, `${source}/no-show-Available`);
-              }
-            } else if (_vidForPresence) {
-              await _clearOnlineTripFieldsForBooking(_cid, _vidForPresence, bookingId, `[${source}/no-show]`);
+          // Passenger/dispatcher cancel (and No Show): when no remaining live trip,
+          // force-clear sticky online.currentJobId + jobCount so dispatch JOBS badge
+          // cannot stay at 1 after Assign tab is empty.
+          const _vidForPresence = _rVid || _vehId;
+          const _hasOtherTrip = _driverHasActiveTripJob(_rDrv, _cid, bookingId);
+          if (!_hasOtherTrip && _vidForPresence) {
+            await _forceOnlinePresenceAvailable(_cid, _vidForPresence, `${source}/cancel-presence`);
+            await _syncDriverJobCount(_cid, _rDrv, `${source}/cancel-jobCount`);
+            if (_cid && _rDrv) {
+              applyZoneQueueSyncForDriver(_cid, _rDrv, _vidForPresence, `${source}/cancel-Available`);
             }
-            if (!String(source).startsWith('api/cancel')) {
-              _markRecentlyCancelled(bookingId);
-              _scheduleDispatchConsoleRefresh(
-                _cid,
-                _terminalDispatchConsoleRefreshPayload(
-                  bookingId,
-                  'No Show',
-                  _cancelStage,
-                  _rDrv || _drvId,
-                  job.updateSeq,
-                ),
-                500,
-              );
-            }
+          } else if (_vidForPresence) {
+            await _clearOnlineTripFieldsForBooking(_cid, _vidForPresence, bookingId, `[${source}/cancel]`);
+            await _syncDriverJobCount(_cid, _rDrv, `${source}/cancel-remaining-jobCount`);
+          }
+          if (_isNoShow && !String(source).startsWith('api/cancel')) {
+            _markRecentlyCancelled(bookingId);
+            _scheduleDispatchConsoleRefresh(
+              _cid,
+              _terminalDispatchConsoleRefreshPayload(
+                bookingId,
+                'No Show',
+                _cancelStage,
+                _rDrv || _drvId,
+                job.updateSeq,
+              ),
+              500,
+            );
           }
         }
       }
@@ -3994,7 +4001,11 @@ function _mirrorFbJobFields(changed) {
     out.passengername = out.Name;
   }
   if (out.PickAddress != null) out.pickAddress = out.PickAddress;
-  if (out.DropAddress != null) out.dropAddress = out.DropAddress;
+  if (out.DropAddress != null) {
+    out.dropAddress = out.DropAddress;
+    out.dropoff = out.DropAddress;
+  }
+  if (out.DropLatLng != null) out.dropLatLng = out.DropLatLng;
   if (out.PhoneNo != null) out.passengerPhone = out.PhoneNo;
   if (out.Pickingtime != null && out.BookingDateTime == null) out.BookingDateTime = out.Pickingtime;
   if (out.BookingDateTime != null && out.Pickingtime == null) out.Pickingtime = out.BookingDateTime;
@@ -5767,7 +5778,14 @@ async function _syncDriverJobCount(cid, driverId, sourceTag) {
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return;
-    const patch = { jobCount: count };
+    // When no live jobs remain, also clear sticky trip pointers so dispatch
+    // JOBS:N badges (Math.max(store, online.jobCount)) cannot stay inflated.
+    const patch = count === 0
+      ? _onlineTripClearPatch(
+          (zd && (zd.vehiclestatus || zd.VehicleStatus)) || 'Available',
+          { jobCount: 0 },
+        )
+      : { jobCount: count };
     await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok).catch(() => {});
     await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok).catch(() => {});
   } catch (e) {
@@ -7882,6 +7900,123 @@ async function passengerImComing(opts) {
     version: parseInt(job.updateSeq) || 0,
     booking: _publicBooking(job),
   };
+}
+
+/** Normalize passenger-app edit aliases into INVT-canonical updateBooking fields. */
+function _normalizePassengerEditChanges(raw) {
+  const src = (raw && typeof raw === 'object') ? raw : {};
+  const c = Object.assign({}, src);
+
+  const dropAddr =
+    c.DropAddress || c.dropoff || c.DropoffAddress || c.dropoffAddress || c.destination || '';
+  if (dropAddr && !c.DropAddress) c.DropAddress = String(dropAddr);
+  if (c.DropAddress && !c.dropoff) c.dropoff = c.DropAddress;
+
+  const dropLat = c.DropoffLat ?? c.dropoffLat ?? c.DropLat ?? c.dropLat;
+  const dropLng = c.DropoffLng ?? c.dropoffLng ?? c.DropLng ?? c.dropLng;
+  if ((c.DropLatLng == null || String(c.DropLatLng).trim() === '') &&
+      dropLat != null && dropLng != null &&
+      String(dropLat) !== '' && String(dropLng) !== '') {
+    c.DropLatLng = `${dropLat},${dropLng}`;
+  }
+  if (c.DropLatLng && !c.dropLatLng) c.dropLatLng = c.DropLatLng;
+
+  if (c.EstimatedFare == null && c.estimatedFare != null) c.EstimatedFare = c.estimatedFare;
+  if (c.EstimatedFare == null && c.fare != null) c.EstimatedFare = c.fare;
+  if (c.EstimatedFare != null) {
+    if (c.CustomeRate == null) c.CustomeRate = c.EstimatedFare;
+    if (c.RideCost == null) c.RideCost = c.EstimatedFare;
+  }
+
+  if (Array.isArray(c.stops) && c.Nextstop == null) {
+    c.Nextstop = String(c.stops.length);
+  }
+  if (Array.isArray(c.stops) && c.nextstopdata == null) {
+    c.nextstopdata = JSON.stringify(c.stops.map((s) => {
+      if (!s || typeof s !== 'object') return { address: String(s || '') };
+      return {
+        address: s.address || s.Address || '',
+        lat: s.lat ?? s.Lat ?? null,
+        lng: s.lng ?? s.Lng ?? null,
+      };
+    }));
+  }
+  if (Array.isArray(c.stops) && c.Stops == null) {
+    c.Stops = c.stops.map((s) =>
+      (s && typeof s === 'object') ? (s.address || s.Address || '') : String(s || '')
+    );
+  }
+
+  // Strip passenger-only aliases so they don't pollute jobStore / editHistory.
+  for (const k of [
+    'DropoffAddress', 'dropoffAddress', 'destination',
+    'DropoffLat', 'DropoffLng', 'dropoffLat', 'dropoffLng', 'DropLat', 'DropLng', 'dropLat', 'dropLng',
+    'estimatedFare', 'fare',
+  ]) {
+    delete c[k];
+  }
+  return c;
+}
+
+const _PASSENGER_EDIT_ALLOWED = new Set([
+  'DropAddress', 'dropoff', 'DropLatLng', 'dropLatLng',
+  'EstimatedFare', 'CustomeRate', 'RideCost', 'Fare',
+  'JobDistance', 'distance', 'Distance',
+  'Stops', 'stops', 'Nextstop', 'nextstopdata', 'extraStops',
+  'Notes', 'notes', 'JobInfo', 'Instructions',
+]);
+
+const _PASSENGER_EDIT_BLOCKED_STATUSES = new Set([
+  'Arrived', 'Active', 'OnTrip', 'Completed', 'Cancelled', 'No Show', 'NoShow', 'Closed',
+]);
+
+/**
+ * Passenger destination/stop edit — routes through updateBooking so editHistory,
+ * driver job_updated notify, and allbookings/pendingjobs fanout all fire.
+ */
+async function passengerEditBooking(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const source = opts.source || 'passengerEditBooking';
+  if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
+
+  const idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  if (idx === -1) {
+    if (_closedStoreBlocksMutation(bookingId)) {
+      return { ok: false, error_code: 'closed', closed: true, error: 'job already closed' };
+    }
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
+  }
+  const job = jobStore[idx];
+  const st = String(job.BookingStatus || '');
+  if (_PASSENGER_EDIT_BLOCKED_STATUSES.has(st)) {
+    return {
+      ok: false,
+      error_code: 'invalid_transition',
+      error: 'Trip can only be edited before the driver arrives',
+      currentStatus: st,
+    };
+  }
+
+  const normalized = _normalizePassengerEditChanges(opts.changes);
+  const changes = {};
+  for (const k of Object.keys(normalized)) {
+    if (_PASSENGER_EDIT_ALLOWED.has(k)) changes[k] = normalized[k];
+  }
+  if (!Object.keys(changes).length) {
+    return { ok: false, error_code: 'bad_request', error: 'no editable fields in changes' };
+  }
+
+  const _cid = String(job.companyId || opts.companyId || '').trim();
+  return updateBooking({
+    bookingId,
+    changes,
+    by: 'passenger',
+    companyId: _cid,
+    source,
+    actorName: String(opts.actorName || 'passenger_app').trim() || 'passenger_app',
+    ifSeq: opts.ifSeq != null ? parseInt(opts.ifSeq) : null,
+  });
 }
 
 /** Promote Queued → Assigned when driver finishes prior trip (replaces legacy [PromoteQueuedToAssigned]). */
@@ -18649,6 +18784,41 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_result));
     console.log(`${_status}: POST /api/job/im-coming #${_iJob} ok=${_result.ok}`);
+    return;
+  }
+
+  // ── POST /api/job/passenger-edit — destination/stop/fare via updateBooking ───
+  // Same open passenger model as /api/job/im-coming (no X-Admin-Key). Edits only
+  // allowed before Arrived; routes through updateBooking → editHistory + driver notify.
+  if (urlPath === '/api/job/passenger-edit' && req.method === 'POST') {
+    const _peBody = await readBody(req);
+    let _pe = {};
+    try { _pe = JSON.parse(_peBody); } catch (e) {}
+    const _peJob = parseInt(_pe.bookingId || _pe.jobId || _pe.BookingId || 0) || 0;
+    const _peChanges = (_pe.changes && typeof _pe.changes === 'object')
+      ? _pe.changes
+      : (_pe.editFields && typeof _pe.editFields === 'object' ? _pe.editFields : null);
+    const _peResult = await passengerEditBooking({
+      bookingId: _peJob,
+      companyId: String(_pe.companyId || _pe.cid || '').trim(),
+      changes: _peChanges || {},
+      actorName: String(_pe.actorName || _pe.byName || 'passenger_app').trim(),
+      ifSeq: _pe.ifSeq != null ? parseInt(_pe.ifSeq) : null,
+      source: '/api/job/passenger-edit',
+    });
+    let _peStatus = 200;
+    if (_peResult.stale || _peResult.error_code === 'edit_locked' || _peResult.error_code === 'invalid_transition') {
+      _peStatus = 409;
+    } else if (_peResult.closed || _peResult.error_code === 'closed') {
+      _peStatus = 410;
+    } else if (!_peResult.ok && _peResult.error_code === 'not_found') {
+      _peStatus = 404;
+    } else if (!_peResult.ok) {
+      _peStatus = 400;
+    }
+    res.writeHead(_peStatus, JSON_HEADERS);
+    res.end(JSON.stringify(_peResult));
+    console.log(`${_peStatus}: POST /api/job/passenger-edit #${_peJob} ok=${_peResult.ok} types=${JSON.stringify(_peResult.eventTypes || [])}`);
     return;
   }
 
