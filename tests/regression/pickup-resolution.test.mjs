@@ -137,6 +137,29 @@ test('wrong-passenger recall at Arrived returns job to Pending', async () => {
   const driverId = h.driverIds[2];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('wrong-pax-recall');
+  // Simulate passenger Card booking that only stamped PaymentType (no PaymentMethod).
+  await h.mutateJobStore(jobId, {
+    PaymentType: 'Card',
+    paymentType: 'Card',
+    PaymentMethod: '',
+    paymentMethod: '',
+    paymentStatus: 'paid',
+    isPrePaid: true,
+    isFixedPrice: true,
+    BookingSource: 'PassengerApp',
+  });
+  // Also stamp allbookings so pool_restore preserve cannot resurrect a stale Cash default.
+  await h.setFirebaseBooking(jobId, {
+    PaymentType: 'Card',
+    paymentType: 'Card',
+    PaymentMethod: '',
+    paymentMethod: '',
+    paymentStatus: 'paid',
+    PaymentStatus: 'paid',
+    isPrePaid: true,
+    isFixedPrice: true,
+    BookingSource: 'PassengerApp',
+  });
   await h.assignAccept(jobId, driverId);
   assert.equal((await h.stageJob(jobId, driverId, 'Arrived')).body.ok, true);
 
@@ -146,11 +169,11 @@ test('wrong-passenger recall at Arrived returns job to Pending', async () => {
       bookingId: jobId,
       companyId: TEST_CID,
       cancelledBy: 'driver',
-      driverId,
+      driverId: String(driverId),
       wrongPassenger: true,
       reason: 'Wrong passenger / uninvited — returned to pool',
     },
-    h.adminHeaders,
+    h.driverHeaders(driverId),
   );
   assert.equal(res.body.ok, true, JSON.stringify(res.body));
   assert.equal(res.body.recalled, true);
@@ -163,6 +186,20 @@ test('wrong-passenger recall at Arrived returns job to Pending', async () => {
   assert.equal(String(trace.jobStore.lifecycle.BookingStatus), 'Pending');
   assert.match(String(trace.jobStore.lifecycle.returnReason || ''), /wrong|uninvited|recall/i);
   assert.equal(trace.jobStore.closedFound, false);
+
+  // Pool restore must strip assignment lifecycle + keep Card (not force Cash).
+  const ab = await h.firebasePeek(`allbookings/${h.companyId}/${jobId}`);
+  assert.ok(ab && typeof ab === 'object', 'allbookings row after wrong-pax recall');
+  assert.equal(String(ab.BookingStatus || ab.Status || ''), 'Pending');
+  assert.ok(!ab.ArrivedAt && !ab.arrivedAt, 'ArrivedAt cleared on pool_restore');
+  assert.ok(!ab.PickupVerifiedAt && !ab.pickupVerifiedAt, 'PickupVerifiedAt cleared on pool_restore');
+  assert.ok(!ab.OnBoardAt && !ab.onBoardAt && !ab.ActiveAt, 'OnBoard/Active cleared on pool_restore');
+  const pay = String(ab.PaymentType || ab.PaymentMethod || ab.paymentType || '').toLowerCase();
+  assert.match(pay, /card/, `payment preserved as Card (got ${pay || 'empty'})`);
+
+  const rs = await h.firebasePeek(`rideStatus/${h.companyId}/${jobId}`);
+  assert.equal(String(rs?.RecallStatus || ''), 'Recalled', 'passenger rideStatus RecallStatus written');
+
   await prepareCleanDispatch(h);
 });
 

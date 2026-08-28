@@ -3221,7 +3221,8 @@ async function cancelBooking(opts) {
   job.CancelStage        = _cancelStage;
   job.CancelReason       = reason;
   job.CancelledAt        = _nowIso;
-  job.PaymentMethod      = job.PaymentMethod || job.paymentMethod || '';
+  job.PaymentMethod      = job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '';
+  if (job.PaymentMethod && !job.PaymentType) job.PaymentType = job.PaymentMethod;
   job.AssignedDriverId   = _drvId;
   job.AssignedVehicleId  = _vehId;
   job.FareSnapshot       = job.EstimatedFare || job.RideCost || job.CustomeRate || '';
@@ -3442,6 +3443,16 @@ async function cancelBooking(opts) {
       console.warn(`  [${source}] cancel firebase fanout failed: ${e && e.message}`);
     }
 
+    if (recallToPending && _cid) {
+      const _wpNotify =
+        opts.wrongPassenger === true || /wrong\s*passenger|uninvited/i.test(reason);
+      // Always notify on pool restore so the passenger sees the booking is still live.
+      void _notifyPassengerRecall(_cid, bookingId, {
+        reason,
+        wrongPassenger: _wpNotify,
+      });
+    }
+
     return {
       ok: true, idempotent: false,
       cancelStage: _cancelStage,
@@ -3457,6 +3468,104 @@ async function cancelBooking(opts) {
     };
   } finally {
     _CANCEL_IN_FLIGHT.delete(_cancelKey);
+  }
+}
+
+/**
+ * Notify passenger when a booked job is returned to the pool (wrong-passenger / recall).
+ * Mirrors dispatch console `_bwNotifyPassengerRecall`: rideStatus RecallStatus,
+ * Passengerjobs/{deviceUid} recallNotification, and Expo push when deviceUid is a token.
+ */
+async function _notifyPassengerRecall(cid, bookingId, opts) {
+  opts = opts || {};
+  if (!cid || !bookingId) return { ok: false, reason: 'missing_ids' };
+  const reason = String(opts.reason || '');
+  const isWrongPax = opts.wrongPassenger === true || /wrong\s*passenger|uninvited/i.test(reason);
+  const recallMsg = isWrongPax
+    ? "The driver couldn't complete your pickup. We're finding you another driver — your booking is still active."
+    : "Your driver had to return your booking to queue. A new driver will be allocated shortly.";
+  const nowIso = new Date().toISOString();
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return { ok: false, reason: 'no_token' };
+
+    let booking = null;
+    try {
+      booking = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+    } catch (_e) { /* best-effort */ }
+    if (!booking || typeof booking !== 'object') {
+      try {
+        booking = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok);
+      } catch (_e2) { /* best-effort */ }
+    }
+
+    await firebaseDbPatch(`rideStatus/${cid}/${bookingId}`, {
+      RecallStatus: 'Recalled',
+      recalledAt: nowIso,
+      message: recallMsg,
+      Status: 'Pending',
+      BookingStatus: 'Pending',
+      DriverId: '0',
+      VehicleId: '0',
+    }, tok).catch((e) =>
+      console.warn(`  [pax-recall-notify] rideStatus write failed #${bookingId}: ${e && e.message}`),
+    );
+
+    const deviceUid = booking
+      ? String(
+          booking.deviceUid ||
+            booking.DeviceUid ||
+            booking.deviceuid ||
+            booking.DeviceUID ||
+            '',
+        ).trim()
+      : '';
+    if (!deviceUid) {
+      console.log(`  [pax-recall-notify] #${bookingId} rideStatus Recalled written (no deviceUid — push skipped)`);
+      return { ok: true, pushed: false, rideStatus: true };
+    }
+
+    await firebaseDbPatch(`Passengerjobs/${deviceUid}`, {
+      recallNotification: {
+        message: recallMsg,
+        bookingId: String(bookingId),
+        timestamp: nowIso,
+        reason: isWrongPax ? 'wrong_passenger' : 'recalled',
+      },
+    }, tok).catch((e) =>
+      console.warn(`  [pax-recall-notify] Passengerjobs write failed: ${e && e.message}`),
+    );
+
+    const isExpoToken =
+      /^ExponentPushToken\[.+\]$/.test(deviceUid) || /^ExpoPushToken\[.+\]$/.test(deviceUid);
+    if (!isExpoToken) {
+      console.log(`  [pax-recall-notify] #${bookingId} deviceUid not Expo token — push skipped`);
+      return { ok: true, pushed: false, rideStatus: true, passengerjobs: true };
+    }
+
+    try {
+      const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          to: deviceUid,
+          title: 'Booking Update',
+          body: recallMsg,
+          data: { bookingId: String(bookingId), type: 'recall', reason: isWrongPax ? 'wrong_passenger' : 'recalled' },
+          sound: 'default',
+          priority: 'high',
+        }),
+      });
+      const pushBody = await pushRes.json().catch(() => ({}));
+      console.log(`  [pax-recall-notify] Expo push #${bookingId} status=${pushRes.status}`);
+      return { ok: true, pushed: true, rideStatus: true, passengerjobs: true, pushBody };
+    } catch (e) {
+      console.warn(`  [pax-recall-notify] Expo push failed #${bookingId}: ${e && e.message}`);
+      return { ok: true, pushed: false, rideStatus: true, passengerjobs: true };
+    }
+  } catch (e) {
+    console.warn(`  [pax-recall-notify] failed #${bookingId}: ${e && e.message}`);
+    return { ok: false, reason: e && e.message };
   }
 }
 
@@ -6145,6 +6254,14 @@ function _buildAllbookingsMirrorFromJob(job) {
     ServiceType: job.serviceType || job.ServiceType || 'taxi',
     Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
     PaymentType: normed.paymentMethod,
+    PaymentMethod: normed.paymentMethod,
+    paymentType: normed.paymentMethod,
+    paymentMethod: normed.paymentMethod,
+    paymentStatus: job.paymentStatus || job.PaymentStatus || '',
+    PaymentStatus: job.PaymentStatus || job.paymentStatus || '',
+    isPrePaid: !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid),
+    isPrepaid: !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid),
+    isFixedPrice: job.isFixedPrice === true || String(job.TarriffId ?? job.TariffId ?? '') === '-1',
     returnReason: job.returnReason || '',
     ReturnReason: job.returnReason || '',
     originalStatus: job.originalStatus || '',
@@ -7030,6 +7147,29 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       serviceType: job.serviceType || job.ServiceType || 'taxi',
       Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
       PaymentType: normed.paymentMethod,
+      PaymentMethod: normed.paymentMethod,
+      paymentType: normed.paymentMethod,
+      paymentMethod: normed.paymentMethod,
+      paymentStatus: job.paymentStatus || job.PaymentStatus || '',
+      PaymentStatus: job.PaymentStatus || job.paymentStatus || '',
+      isPrePaid: !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid),
+      isPrepaid: !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid),
+      isFixedPrice: job.isFixedPrice === true || String(job.TarriffId ?? job.TariffId ?? '') === '-1',
+      // Explicit nulls — pool restore must not leave prior assignment lifecycle on the node.
+      ArrivedAt: null,
+      arrivedAt: null,
+      OnBoardAt: null,
+      onBoardAt: null,
+      ActiveAt: null,
+      activeAt: null,
+      DriverAcceptedAt: null,
+      driverAcceptedAt: null,
+      PickupVerifiedAt: null,
+      pickupVerifiedAt: null,
+      imComingAt: null,
+      ImComingAt: null,
+      noShowDeadlineAt: null,
+      stepTimes: null,
       returnReason: job.returnReason || '',
       ReturnReason: job.returnReason || '',
       lastOfferDriverId: job.lastOfferDriverId || '',
@@ -7062,7 +7202,7 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
     await _writeAllbookingsLiveAwait(cid, bookingId, Object.assign({}, fbJob, {
       BookingStatus: restored,
       Status: restored,
-    }), job, tok);
+    }), job, tok, { clearAssignmentLifecycle: true });
   } catch (e) {
     console.warn(`  [pendingjobs] write failed: ${e && e.message}`);
   }
@@ -9095,6 +9235,18 @@ function _liveJobIsIdReuseOverClosed(job) {
   return jsSeq > closedSeq;
 }
 
+/** Assignment-lifecycle keys that must not survive pool_restore into allbookings. */
+const _ASSIGNMENT_LIFECYCLE_CLEAR_KEYS = [
+  'DriverAcceptedAt', 'driverAcceptedAt',
+  'ArrivedAt', 'arrivedAt',
+  'OnBoardAt', 'onBoardAt',
+  'ActiveAt', 'activeAt',
+  'PickupVerifiedAt', 'pickupVerifiedAt',
+  'imComingAt', 'ImComingAt',
+  'noShowDeadlineAt',
+  'stepTimes',
+];
+
 /**
  * Write a live (non-terminal) job to allbookings. Live pool/offer writes always SET a
  * full mirror so a prior terminal row (id reuse) cannot survive via PATCH.
@@ -9170,8 +9322,13 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         'BookingSource', 'bookingSource', 'Source', 'source', 'CreatedBy', 'createdBy',
         'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'PickupVerifiedAt',
         'imComingAt', 'ImComingAt', 'noShowDeadlineAt',
+        'deviceUid', 'DeviceUid', 'deviceuid', 'DeviceUID',
       ];
+      const _skipPreserve = opts.clearAssignmentLifecycle === true
+        ? new Set(_ASSIGNMENT_LIFECYCLE_CLEAR_KEYS)
+        : null;
       for (const _pk of _preserveKeys) {
+        if (_skipPreserve && _skipPreserve.has(_pk)) continue;
         const _cur = payload[_pk];
         const _prev = existing[_pk];
         const _curEmpty = _cur == null || (typeof _cur === 'string' && !_cur.trim());
@@ -9199,6 +9356,12 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
       if (_prevPin && !String(payload.PickupPin || payload.pickupPin || '').trim()) {
         payload.PickupPin = _prevPin;
         payload.pickupPin = _prevPin;
+      }
+    }
+    // pool_restore: force-clear stale arrival/verify/onboard so re-accept starts clean.
+    if (opts.clearAssignmentLifecycle === true) {
+      for (const _ck of _ASSIGNMENT_LIFECYCLE_CLEAR_KEYS) {
+        payload[_ck] = null;
       }
     }
     await firebaseDbSet(`allbookings/${cid}/${bookingId}`, payload, tok)
@@ -13154,7 +13317,19 @@ function _normFbJob(job) {
                    ? (job.dropLatLng || job.DropLatLng)
                    : (dropLat && dropLng ? `${dropLat},${dropLng}` : '0,0'),
     vehicleType:    job.VehicleType    || job.vehicleType    || '',
-    paymentMethod:  job.PaymentMethod  || job.paymentMethod  || 'cash',
+    // Honor PaymentType as well as PaymentMethod — passenger bookings often
+    // only set PaymentType (Card/Account/TM). Defaulting to cash on omit caused
+    // prepaid jobs to silently become Cash on pool_restore / pending rewrite.
+    paymentMethod: (function () {
+      const raw = String(
+        job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '',
+      ).trim();
+      if (raw) return raw;
+      const accountId = String(job.Account_id || job.AccountId || job.accountNumber || '').trim();
+      const bookingType = String(job.Bookingtype || job.BookingType || job.bookingType || '').toLowerCase();
+      if (accountId || bookingType.includes('account')) return 'Account';
+      return 'cash';
+    })(),
     estimatedFare:  parseFloat(job.EstimatedFare || job.estimatedFare || 0),
     notes:       job.notes || job.Notes || '',
     passengers:  parseInt(job.passengers || job.Passengers || '1') || 1,
@@ -16542,6 +16717,10 @@ const server = http.createServer(async (req, res) => {
         'manualOffer', 'vehicleType', 'Passengers', 'PassengersNo', 'BookingSource',
         'Source', 'CreatedBy', 'createdBy',
         'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'imComingAt', 'noShowDeadlineAt',
+        // Payment / prepaid — needed to repro Card-only PaymentType pool_restore corruption
+        'PaymentType', 'paymentType', 'PaymentMethod', 'paymentMethod',
+        'paymentStatus', 'PaymentStatus', 'isPrePaid', 'isPrepaid', 'isFixedPrice',
+        'EstimatedFare', 'TarriffId', 'TariffId',
       ];
       for (const k of allowed) {
         if (patch[k] !== undefined) job[k] = patch[k];
@@ -18643,6 +18822,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       driverFault: !!_route.driverFault,
       recallToPending: !!_route.recallToPending,
       terminalKind: _route.terminalKind || undefined,
+      wrongPassenger: !!_route.wrongPassenger,
       cancelSource: _cancelSourceFromBy(_ccBy),
       cancelledByDisplay: _cancelledByDisplay(_ccBy, { dispatcherName: _cc.dispatcherName }),
       dispatcherName: _cc.dispatcherName,
