@@ -9323,6 +9323,8 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'PickupVerifiedAt',
         'imComingAt', 'ImComingAt', 'noShowDeadlineAt',
         'deviceUid', 'DeviceUid', 'deviceuid', 'DeviceUID',
+        // Firebase passenger uid — required to mirror status into Passengerjobs/{uid}/{jobId}
+        'passengerId', 'PassengerUid', 'passengerUid', 'PassengerAppUid',
       ];
       const _skipPreserve = opts.clearAssignmentLifecycle === true
         ? new Set(_ASSIGNMENT_LIFECYCLE_CLEAR_KEYS)
@@ -9425,6 +9427,51 @@ async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
     await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, _tok)
       .catch(_e => console.warn(`  [ver-fanout] pendingjobs/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
   }
+  // Keep passenger-app copy in sync — History + Active Ride recover from Passengerjobs.
+  await _mirrorPassengerJobsStatus(cid, bookingId, patch, _tok).catch((_e) =>
+    console.warn(`  [ver-fanout] Passengerjobs mirror failed #${bookingId}: ${_e && _e.message}`),
+  );
+}
+
+/** Firebase Auth UIDs are long alphanumerics — not phone numbers / desk PassengerId aliases. */
+function _looksLikeFirebasePassengerUid(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s === 'guest') return false;
+  if (s.length < 20 || s.length > 128) return false;
+  if (/^\d+$/.test(s)) return false; // phone / desk id
+  return /^[A-Za-z0-9_-]+$/.test(s);
+}
+
+function _passengerUidFromRecord(rec) {
+  if (!rec || typeof rec !== 'object') return '';
+  const candidates = [
+    rec.passengerId,
+    rec.PassengerUid,
+    rec.passengerUid,
+    rec.PassengerAppUid,
+  ];
+  for (const c of candidates) {
+    if (_looksLikeFirebasePassengerUid(c)) return String(c).trim();
+  }
+  return '';
+}
+
+async function _mirrorPassengerJobsStatus(cid, bookingId, patch, tok) {
+  if (!cid || !bookingId || !patch || !tok) return;
+  let uid = _passengerUidFromRecord(patch);
+  if (!uid) {
+    try {
+      const ab = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+      uid = _passengerUidFromRecord(ab);
+    } catch (_e) { /* best-effort */ }
+  }
+  if (!uid) return;
+  const mirror = Object.assign({}, patch, {
+    passengerId: uid,
+    PassengerUid: uid,
+    passengerUid: uid,
+  });
+  await firebaseDbPatch(`Passengerjobs/${uid}/${bookingId}`, mirror, tok);
 }
 
 // Nudge dispatch console to refresh job tabs immediately (Offer/Assign/U-A).
