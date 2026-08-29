@@ -238,6 +238,7 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         rec.dropLatLng ??
         (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : ''),
     ),
+    stops: parseJobStops(rec),
     passengerName: String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? ''),
     passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? rec.phoneNo ?? ''),
     paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? 'Cash'),
@@ -1012,6 +1013,197 @@ function parseJobEditHistory(raw: unknown): JobEditHistoryEntry[] | undefined {
   return parsed.length ? parsed.slice(-30) : undefined;
 }
 
+const EDIT_HISTORY_STOP_KEYS = [
+  'stops',
+  'Stops',
+  'Nextstop',
+  'nextstopdata',
+  'extraStops',
+] as const;
+
+/** Parse intermediate stops from any of the live/closed job stop fields. */
+export function parseJobStops(rec: Record<string, unknown>): JobStop[] | undefined {
+  const out: JobStop[] = [];
+  const seen = new Set<string>();
+  const push = (address: string, lat?: number, lng?: number) => {
+    const a = String(address || '').trim();
+    if (!a || seen.has(a)) return;
+    seen.add(a);
+    out.push({
+      address: a,
+      lat: typeof lat === 'number' && !Number.isNaN(lat) ? lat : 0,
+      lng: typeof lng === 'number' && !Number.isNaN(lng) ? lng : 0,
+    });
+  };
+
+  const tryList = (raw: unknown) => {
+    if (raw == null || raw === '') return;
+    let list: unknown = raw;
+    if (typeof raw === 'string') {
+      const s = raw.trim();
+      if (!s) return;
+      if (s.startsWith('[') || s.startsWith('{')) {
+        try {
+          list = JSON.parse(s);
+        } catch {
+          // Dispatch create: lat@lng@address= | …
+          if (s.includes('@') && /address=/i.test(s)) {
+            for (const part of s.split('|')) {
+              const m = part.match(/address=([^|]*)/i);
+              const latM = part.match(/^(-?\d+(?:\.\d+)?)@(-?\d+(?:\.\d+)?)@/i);
+              if (m) push(m[1], latM ? Number(latM[1]) : 0, latM ? Number(latM[2]) : 0);
+            }
+            return;
+          }
+          push(s);
+          return;
+        }
+      } else if (s.includes('@') && /address=/i.test(s)) {
+        for (const part of s.split('|')) {
+          const m = part.match(/address=([^|]*)/i);
+          const latM = part.match(/^(-?\d+(?:\.\d+)?)@(-?\d+(?:\.\d+)?)@/i);
+          if (m) push(m[1], latM ? Number(latM[1]) : 0, latM ? Number(latM[2]) : 0);
+        }
+        return;
+      } else {
+        push(s);
+        return;
+      }
+    }
+    if (Array.isArray(list)) {
+      for (const item of list) {
+        if (item == null) continue;
+        if (typeof item === 'string') {
+          push(item);
+          continue;
+        }
+        if (typeof item === 'object') {
+          const o = item as Record<string, unknown>;
+          push(
+            String(o.address ?? o.Address ?? ''),
+            o.lat != null ? Number(o.lat) : o.Lat != null ? Number(o.Lat) : 0,
+            o.lng != null ? Number(o.lng) : o.Lng != null ? Number(o.Lng) : 0,
+          );
+        }
+      }
+    }
+  };
+
+  tryList(rec.Stops ?? rec.stops);
+  tryList(rec.nextstopdata ?? rec.Nextstopdata);
+  return out.length ? out : undefined;
+}
+
+function stopAddressesFromEditValue(raw: unknown): string[] {
+  if (raw == null || raw === '') return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((s) => {
+        if (s == null) return '';
+        if (typeof s === 'string') return s.trim();
+        if (typeof s === 'object') {
+          const o = s as Record<string, unknown>;
+          return String(o.address ?? o.Address ?? '').trim();
+        }
+        return String(s).trim();
+      })
+      .filter(Boolean);
+  }
+  if (typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    const addr = String(o.address ?? o.Address ?? '').trim();
+    return addr ? [addr] : [];
+  }
+  const s = String(raw).trim();
+  if (!s || s === '[object Object]') return [];
+  if (s.startsWith('[') || s.startsWith('{')) {
+    try {
+      return stopAddressesFromEditValue(JSON.parse(s));
+    } catch {
+      /* fall through */
+    }
+  }
+  if (s.includes('@') && /address=/i.test(s)) {
+    return s
+      .split('|')
+      .map((part) => {
+        const m = String(part).match(/address=([^|]*)/i);
+        return m ? String(m[1] || '').trim() : '';
+      })
+      .filter(Boolean);
+  }
+  return [s];
+}
+
+/** Rebuild a readable stop line from editHistory.changes (covers legacy summaries). */
+export function summarizeStopEditFromChanges(
+  changes?: Record<string, { from?: unknown; to?: unknown }>,
+): string | null {
+  if (!changes) return null;
+  const touches = EDIT_HISTORY_STOP_KEYS.some((k) =>
+    Object.prototype.hasOwnProperty.call(changes, k),
+  );
+  if (!touches) return null;
+  const fromAddrs: string[] = [];
+  const toAddrs: string[] = [];
+  const seenFrom = new Set<string>();
+  const seenTo = new Set<string>();
+  for (const key of ['Stops', 'nextstopdata', 'stops', 'extraStops'] as const) {
+    const row = changes[key];
+    if (!row) continue;
+    for (const a of stopAddressesFromEditValue(row.from)) {
+      if (!seenFrom.has(a)) {
+        seenFrom.add(a);
+        fromAddrs.push(a);
+      }
+    }
+    for (const a of stopAddressesFromEditValue(row.to)) {
+      if (!seenTo.has(a)) {
+        seenTo.add(a);
+        toAddrs.push(a);
+      }
+    }
+  }
+  if (!toAddrs.length && !fromAddrs.length) {
+    const nTo = changes.Nextstop?.to != null ? String(changes.Nextstop.to) : '';
+    const nFrom = changes.Nextstop?.from != null ? String(changes.Nextstop.from) : '';
+    if (nTo && nTo !== nFrom) return `Stop count → ${nTo}`;
+    return null;
+  }
+  const added = toAddrs.filter((a) => !seenFrom.has(a));
+  const removed = fromAddrs.filter((a) => !seenTo.has(a));
+  if (added.length && !removed.length && toAddrs.length >= fromAddrs.length) {
+    return `Stop added → ${added.join('; ')}`;
+  }
+  if (removed.length && !added.length) {
+    return `Stop removed → ${removed.join('; ')}`;
+  }
+  if (!toAddrs.length) return 'Stops → (cleared)';
+  return `Stops → ${toAddrs.join('; ')}`;
+}
+
+/** Prefer stop-friendly wording when changes carry stop fields (legacy + new). */
+export function enrichEditHistorySummaryWithStops(summary: string, entry: JobEditHistoryEntry): string {
+  const stopLine = summarizeStopEditFromChanges(entry.changes);
+  if (!stopLine) return summary;
+  // Already has a friendly stop line from the server.
+  if (/\bStop added\b|\bStop removed\b|\bStops\s*→/i.test(summary) && !/\[object Object\]/i.test(summary)) {
+    return summary;
+  }
+  // Strip noisy raw stop-field fragments, then append the friendly line.
+  const cleaned = summary
+    .split(/;\s*/)
+    .map((p) => p.trim())
+    .filter((p) => {
+      if (!p) return false;
+      if (/^(Nextstop|nextstopdata|Stops|stops|extraStops|Stop count)\b/i.test(p)) return false;
+      if (/\[object Object\]/i.test(p)) return false;
+      return true;
+    });
+  if (!cleaned.includes(stopLine)) cleaned.push(stopLine);
+  return cleaned.join('; ') || stopLine;
+}
+
 export function formatJobEditHistoryWhen(entry: JobEditHistoryEntry): string {
   try {
     const d = entry.atMs ? new Date(entry.atMs) : new Date(entry.at);
@@ -1071,11 +1263,12 @@ export function formatJobEditHistorySummary(
   entry: JobEditHistoryEntry,
   jobCreatedAt?: Date | null,
 ): string {
-  if (entry.summary.includes('job created')) return entry.summary;
-  if (!editHistoryEntryTouchesTiming(entry)) return entry.summary;
+  let summary = enrichEditHistorySummaryWithStops(entry.summary, entry);
+  if (summary.includes('job created')) return summary;
+  if (!editHistoryEntryTouchesTiming(entry)) return summary;
   const ms = entry.jobCreatedAtMs ?? jobCreatedAt?.getTime();
-  if (!ms || Number.isNaN(ms)) return entry.summary;
-  return `${entry.summary} · job created ${formatJobDateTimeShort(new Date(ms))}`;
+  if (!ms || Number.isNaN(ms)) return summary;
+  return `${summary} · job created ${formatJobDateTimeShort(new Date(ms))}`;
 }
 
 function formatFixedFareAmount(raw: string): string | null {

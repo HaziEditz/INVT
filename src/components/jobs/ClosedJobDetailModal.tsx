@@ -35,6 +35,7 @@ import {
   jobPickupTypeLabel,
   jobTariffLabel,
   jobVehicleTypeLabel,
+  parseJobStops,
 } from '@/types/job';
 import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
@@ -161,6 +162,10 @@ function ClosedJobDetailBody({
   const history = [...(job.editHistory ?? [])].reverse();
   const endpoints = closedJobMapEndpoints(job, raw, gpsRoute);
   const hasMap = !!(gpsRoute.length || endpoints.pick || endpoints.drop);
+  const stops =
+    job.stops && job.stops.length > 0
+      ? job.stops
+      : parseJobStops(raw as Record<string, unknown>) || [];
 
   const cancelReason =
     st === 'Cancelled' || st === 'No Show'
@@ -223,6 +228,13 @@ function ClosedJobDetailBody({
           <Panel title="Trip">
             <div className="space-y-1.5">
               <Field label="Pickup" value={dash(job.pickAddress)} />
+              {stops.map((stop, i) => (
+                <Field
+                  key={`stop-${i}-${stop.address}`}
+                  label={stops.length === 1 ? 'Stop' : `Stop ${i + 1}`}
+                  value={dash(stop.address)}
+                />
+              ))}
               <Field label="Dropoff" value={dash(job.dropAddress)} />
               <Field label="Passenger" value={passengerLine} />
               <Field label="Email" value={dash(job.passengerEmail)} />
@@ -335,7 +347,10 @@ function ClosedJobDetailBody({
                       {formatJobEditHistoryWhen(entry)}
                       {` · ${formatJobEditHistoryActor(entry)}`}
                     </div>
-                    <div className="truncate" title={formatJobEditHistorySummary(entry, created)}>
+                    <div
+                      className="leading-snug break-words"
+                      title={formatJobEditHistorySummary(entry, created)}
+                    >
                       {formatJobEditHistorySummary(entry, created)}
                     </div>
                   </li>

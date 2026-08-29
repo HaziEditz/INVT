@@ -48,6 +48,7 @@ function normalizePassengerEditChanges(raw) {
       (s && typeof s === 'object') ? (s.address || s.Address || '') : String(s || '')
     );
   }
+  if (Array.isArray(c.stops)) delete c.stops;
 
   for (const k of [
     'DropoffAddress', 'dropoffAddress', 'destination',
@@ -57,6 +58,73 @@ function normalizePassengerEditChanges(raw) {
     delete c[k];
   }
   return c;
+}
+
+const JOB_EDIT_STOP_KEYS = ['stops', 'Stops', 'Nextstop', 'nextstopdata', 'extraStops'];
+
+function stopAddressesFromEditValue(raw) {
+  if (raw == null || raw === '') return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((s) => {
+        if (s == null) return '';
+        if (typeof s === 'string') return s.trim();
+        if (typeof s === 'object') return String(s.address || s.Address || '').trim();
+        return String(s).trim();
+      })
+      .filter(Boolean);
+  }
+  if (typeof raw === 'object') {
+    const addr = String(raw.address || raw.Address || '').trim();
+    return addr ? [addr] : [];
+  }
+  const s = String(raw).trim();
+  if (!s || s === '[object Object]') return [];
+  if (s.startsWith('[') || s.startsWith('{')) {
+    try { return stopAddressesFromEditValue(JSON.parse(s)); } catch (_) { /* */ }
+  }
+  if (s.includes('@') && /address=/i.test(s)) {
+    return s.split('|').map((part) => {
+      const m = String(part).match(/address=([^|]*)/i);
+      return m ? String(m[1] || '').trim() : '';
+    }).filter(Boolean);
+  }
+  return [s];
+}
+
+function summarizeStopEditDiff(diff) {
+  if (!diff || typeof diff !== 'object') return null;
+  if (!JOB_EDIT_STOP_KEYS.some((k) => Object.prototype.hasOwnProperty.call(diff, k))) return null;
+  const fromAddrs = [];
+  const toAddrs = [];
+  const seenFrom = new Set();
+  const seenTo = new Set();
+  for (const key of ['Stops', 'nextstopdata', 'stops', 'extraStops']) {
+    const row = diff[key];
+    if (!row) continue;
+    for (const a of stopAddressesFromEditValue(row.from)) {
+      if (!seenFrom.has(a)) { seenFrom.add(a); fromAddrs.push(a); }
+    }
+    for (const a of stopAddressesFromEditValue(row.to)) {
+      if (!seenTo.has(a)) { seenTo.add(a); toAddrs.push(a); }
+    }
+  }
+  if (!toAddrs.length && !fromAddrs.length) {
+    const nTo = diff.Nextstop && diff.Nextstop.to != null ? String(diff.Nextstop.to) : '';
+    const nFrom = diff.Nextstop && diff.Nextstop.from != null ? String(diff.Nextstop.from) : '';
+    if (nTo && nTo !== nFrom) return `Stop count → ${nTo}`;
+    return null;
+  }
+  const added = toAddrs.filter((a) => !seenFrom.has(a));
+  const removed = fromAddrs.filter((a) => !seenTo.has(a));
+  if (added.length && !removed.length && toAddrs.length >= fromAddrs.length) {
+    return `Stop added → ${added.join('; ')}`;
+  }
+  if (removed.length && !added.length) {
+    return `Stop removed → ${removed.join('; ')}`;
+  }
+  if (!toAddrs.length) return 'Stops → (cleared)';
+  return `Stops → ${toAddrs.join('; ')}`;
 }
 
 function onlineTripClearPatch(vehiclestatus, extras) {
@@ -119,7 +187,7 @@ test('passenger aliases map to DropAddress + DropLatLng + fare', () => {
   assert.equal(out.dropoffLat, undefined);
 });
 
-test('stops array fills Nextstop / nextstopdata / Stops', () => {
+test('stops array fills Nextstop / nextstopdata / Stops and drops object stops', () => {
   const out = normalizePassengerEditChanges({
     DropAddress: 'Kew Road',
     stops: [{ address: 'Stop A', lat: 1, lng: 2 }],
@@ -128,6 +196,17 @@ test('stops array fills Nextstop / nextstopdata / Stops', () => {
   assert.equal(out.Nextstop, '1');
   assert.deepEqual(out.Stops, ['Stop A']);
   assert.match(out.nextstopdata, /Stop A/);
+  assert.equal(out.stops, undefined);
+});
+
+test('stop edit summary uses address not raw Nextstop / [object Object]', () => {
+  const line = summarizeStopEditDiff({
+    Nextstop: { from: '0', to: '1' },
+    nextstopdata: { from: '', to: JSON.stringify([{ address: '12 King St', lat: 1, lng: 2 }]) },
+    Stops: { from: [], to: ['12 King St'] },
+    EstimatedFare: { from: 18, to: 24 },
+  });
+  assert.equal(line, 'Stop added → 12 King St');
 });
 
 test('online clear patch zeros jobCount and booking pointers', () => {

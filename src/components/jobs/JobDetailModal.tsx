@@ -39,6 +39,7 @@ export function JobDetailModal() {
   const overdue = jobOverdueLabel(job);
   const history = [...(job.editHistory ?? [])].reverse();
   const jobCreatedAt = jobCreatedAtTime(job);
+  const stops = job.stops ?? [];
 
   return (
     <Modal
@@ -67,6 +68,14 @@ export function JobDetailModal() {
         <div className="grid md:grid-cols-2 gap-4">
           <div className="bw-card p-3 space-y-2">
             <div><span className="text-bw-muted text-xs">Pickup</span><p>{job.pickAddress}</p></div>
+            {stops.map((stop, i) => (
+              <div key={`stop-${i}-${stop.address}`}>
+                <span className="text-bw-muted text-xs">
+                  {stops.length === 1 ? 'Stop' : `Stop ${i + 1}`}
+                </span>
+                <p>{stop.address}</p>
+              </div>
+            ))}
             <div><span className="text-bw-muted text-xs">Dropoff</span><p>{jobDropoffDisplay(job)}</p></div>
             <div><span className="text-bw-muted text-xs">Passenger</span><p>{job.passengerName} · {job.passengerPhone}</p></div>
           </div>

@@ -4758,6 +4758,8 @@ function _completePayloadFieldKeys() {
     // Address mirrors — Closed Jobs UI reads DropAddress / PickAddress
     'DropAddress', 'dropAddress', 'dropoff',
     'PickAddress', 'pickAddress', 'pickup',
+    // Intermediate stops (passenger add-stop / dispatch stops)
+    'Nextstop', 'nextstop', 'nextstopdata', 'Stops', 'stops', 'extraStops',
     // Created + timeline top-level mirrors (Closed Jobs detail)
     'createdAt', 'CreatedAt',
     'DriverAcceptedAt', 'driverAcceptedAt',
@@ -7987,6 +7989,9 @@ function _normalizePassengerEditChanges(raw) {
       (s && typeof s === 'object') ? (s.address || s.Address || '') : String(s || '')
     );
   }
+  // Keep Nextstop / nextstopdata / Stops for store + editHistory. Drop the object
+  // array so summaries never become "stops → [object Object]".
+  if (Array.isArray(c.stops)) delete c.stops;
 
   // Strip passenger-only aliases so they don't pollute jobStore / editHistory.
   for (const k of [
@@ -10078,8 +10083,97 @@ function _jobEditFieldLabel(key) {
     TarriffName: 'Tariff',
     serviceType: 'Service',
     ScheduledFor: 'Scheduled for',
+    Nextstop: 'Stop count',
+    nextstopdata: 'Stops',
+    Stops: 'Stops',
+    stops: 'Stops',
+    extraStops: 'Stops',
   };
   return labels[key] || key;
+}
+
+const _JOB_EDIT_STOP_KEYS = ['stops', 'Stops', 'Nextstop', 'nextstopdata', 'extraStops'];
+
+/** Extract human-readable stop addresses from any stop-field value shape. */
+function _stopAddressesFromEditValue(raw) {
+  if (raw == null || raw === '') return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((s) => {
+        if (s == null) return '';
+        if (typeof s === 'string') return s.trim();
+        if (typeof s === 'object') return String(s.address || s.Address || '').trim();
+        return String(s).trim();
+      })
+      .filter(Boolean);
+  }
+  if (typeof raw === 'object') {
+    const addr = String(raw.address || raw.Address || '').trim();
+    return addr ? [addr] : [];
+  }
+  const s = String(raw).trim();
+  if (!s || s === '[object Object]') return [];
+  // Passenger JSON: [{"address":"…","lat":…}]
+  if (s.startsWith('[') || s.startsWith('{')) {
+    try {
+      return _stopAddressesFromEditValue(JSON.parse(s));
+    } catch (_) { /* fall through */ }
+  }
+  // Dispatch create format: lat@lng@address= | lat@lng@address=
+  if (s.includes('@') && /address=/i.test(s)) {
+    return s
+      .split('|')
+      .map((part) => {
+        const m = String(part).match(/address=([^|]*)/i);
+        return m ? String(m[1] || '').trim() : '';
+      })
+      .filter(Boolean);
+  }
+  return [s];
+}
+
+function _diffTouchesStops(diff) {
+  if (!diff || typeof diff !== 'object') return false;
+  return _JOB_EDIT_STOP_KEYS.some((k) => Object.prototype.hasOwnProperty.call(diff, k));
+}
+
+/**
+ * Friendly stop line for editHistory (e.g. "Stop added → 12 King St").
+ * Prefer Stops / nextstopdata / stops over raw Nextstop count.
+ */
+function _summarizeStopEditDiff(diff) {
+  if (!_diffTouchesStops(diff)) return null;
+  const fromAddrs = [];
+  const toAddrs = [];
+  const seenFrom = new Set();
+  const seenTo = new Set();
+  const preferKeys = ['Stops', 'nextstopdata', 'stops', 'extraStops'];
+  for (const key of preferKeys) {
+    const row = diff[key];
+    if (!row) continue;
+    for (const a of _stopAddressesFromEditValue(row.from)) {
+      if (!seenFrom.has(a)) { seenFrom.add(a); fromAddrs.push(a); }
+    }
+    for (const a of _stopAddressesFromEditValue(row.to)) {
+      if (!seenTo.has(a)) { seenTo.add(a); toAddrs.push(a); }
+    }
+  }
+  if (!toAddrs.length && !fromAddrs.length) {
+    const nTo = diff.Nextstop && diff.Nextstop.to != null ? String(diff.Nextstop.to) : '';
+    const nFrom = diff.Nextstop && diff.Nextstop.from != null ? String(diff.Nextstop.from) : '';
+    if (nTo && nTo !== nFrom) return `Stop count → ${nTo}`;
+    return null;
+  }
+  const added = toAddrs.filter((a) => !seenFrom.has(a));
+  const removed = fromAddrs.filter((a) => !seenTo.has(a));
+  if (added.length && !removed.length && toAddrs.length >= fromAddrs.length) {
+    return `Stop added → ${added.join('; ')}`;
+  }
+  if (removed.length && !added.length) {
+    return `Stop removed → ${removed.join('; ')}`;
+  }
+  if (!toAddrs.length) return 'Stops → (cleared)';
+  return `Stops → ${toAddrs.join('; ')}`;
 }
 
 function _formatJobCreatedAtRef(job) {
@@ -10136,12 +10230,22 @@ function _summarizeJobEditDiff(diff, job) {
     const st = diff.BookingStatus || diff.Status;
     parts.push(`Status → ${st.to}`);
   }
+  const stopSummary = _summarizeStopEditDiff(diff);
+  if (stopSummary) parts.push(stopSummary);
   for (const key of Object.keys(diff)) {
     if (['BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore', 'BookingStatus', 'Status', 'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt'].includes(key)) continue;
+    if (_JOB_EDIT_STOP_KEYS.includes(key)) continue; // already covered by stopSummary
     const row = diff[key];
     if (!row || row.from === row.to) continue;
     const label = _jobEditFieldLabel(key);
-    const toVal = row.to == null || row.to === '' ? '(cleared)' : String(row.to).slice(0, 80);
+    let toVal;
+    if (row.to == null || row.to === '') toVal = '(cleared)';
+    else if (typeof row.to === 'object') {
+      try { toVal = JSON.stringify(row.to).slice(0, 120); }
+      catch (_) { toVal = '[object]'; }
+    } else {
+      toVal = String(row.to).slice(0, 120);
+    }
     parts.push(`${label} → ${toVal}`);
   }
   let summary = parts.length ? parts.join('; ') : 'Details updated';
