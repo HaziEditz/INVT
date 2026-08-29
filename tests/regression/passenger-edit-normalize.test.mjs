@@ -76,8 +76,31 @@ function onlineTripClearPatch(vehiclestatus, extras) {
   }, extras && typeof extras === 'object' ? extras : {});
 }
 
-function onlineClearMatchKeys(node) {
-  return String(node.currentJobId || node.jobId || node.BookingId || node.bookingId || '');
+function onlineBookingPointer(node) {
+  if (!node || typeof node !== 'object') return '';
+  const cur = String(node.currentJobId || node.jobId || node.BookingId || node.bookingId || '').trim();
+  if (cur && cur !== '0' && cur !== '-1') return cur;
+  const jo = String(node.joboffer || '').trim();
+  if (!jo || jo === '0' || jo === '1') return '';
+  if (/^\d{4,}$/.test(jo)) return jo;
+  return '';
+}
+
+function onlineJobCountZeroStickyPatch() {
+  return {
+    jobCount: 0,
+    currentJobId: null,
+    jobId: null,
+    BookingId: null,
+    bookingId: null,
+  };
+}
+
+function shouldClearOnlineForBooking(node, bookingId) {
+  const cur = onlineBookingPointer(node);
+  const bId = String(bookingId);
+  if (cur && cur !== bId) return false;
+  return true;
 }
 
 test('passenger aliases map to DropAddress + DropLatLng + fare', () => {
@@ -115,8 +138,36 @@ test('online clear patch zeros jobCount and booking pointers', () => {
   assert.equal(p.vehiclestatus, 'Available');
 });
 
-test('online clear match ignores joboffer flag (sticky JOBS badge bug)', () => {
-  assert.equal(onlineClearMatchKeys({ joboffer: 1, currentJobId: null }), '');
-  assert.equal(onlineClearMatchKeys({ currentJobId: '86926082811', joboffer: 1 }), '86926082811');
-  assert.equal(onlineClearMatchKeys({ BookingId: '99' }), '99');
+test('onlineBookingPointer ignores joboffer:1 flag but keeps real offer ids', () => {
+  assert.equal(onlineBookingPointer({ joboffer: 1, currentJobId: null }), '');
+  assert.equal(onlineBookingPointer({ joboffer: '1' }), '');
+  assert.equal(onlineBookingPointer({ joboffer: '86926082811' }), '86926082811');
+  assert.equal(onlineBookingPointer({ currentJobId: '86926082811', joboffer: 1 }), '86926082811');
+  assert.equal(onlineBookingPointer({ BookingId: '99' }), '99');
+});
+
+test('cancel clear must not wipe a different live offer on the same vehicle', () => {
+  // Regression: treating only currentJobId (ignoring joboffer=<bookingId>) let cancel A
+  // wipe offer B and broke assignAccept Offered polls.
+  assert.equal(
+    shouldClearOnlineForBooking({ joboffer: '86926089999', currentJobId: null }, '86926082811'),
+    false,
+  );
+  assert.equal(
+    shouldClearOnlineForBooking({ currentJobId: '86926082811', joboffer: 1 }, '86926082811'),
+    true,
+  );
+  assert.equal(
+    shouldClearOnlineForBooking({ joboffer: 1, currentJobId: null }, '86926082811'),
+    true,
+  );
+});
+
+test('jobCount sync at 0 must not include joboffer:0 (Offered jobs have count 0)', () => {
+  const p = onlineJobCountZeroStickyPatch();
+  assert.equal(p.jobCount, 0);
+  assert.equal(p.currentJobId, null);
+  assert.equal(p.BookingId, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(p, 'joboffer'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(p, 'vehiclestatus'), false);
 });

@@ -1705,18 +1705,60 @@ function _onlineTripClearPatch(vehiclestatus, extras) {
 }
 
 /**
+ * Resolve the booking id an online/{cid}/{vid} node is pointing at.
+ * Treats multi-digit joboffer values as booking ids (live offers write joboffer=<bookingId>).
+ * Ignores joboffer:1 / "1" — that is a boolean-ish flag, not a booking id (sticky JOBS badge).
+ */
+function _onlineBookingPointer(node) {
+  if (!node || typeof node !== 'object') return '';
+  const cur = String(node.currentJobId || node.jobId || node.BookingId || node.bookingId || '').trim();
+  if (cur && cur !== '0' && cur !== '-1') return cur;
+  const jo = String(node.joboffer || '').trim();
+  if (!jo || jo === '0' || jo === '1') return '';
+  // Offer fanout writes joboffer as the numeric booking id string.
+  if (/^\d{4,}$/.test(jo)) return jo;
+  return '';
+}
+
+/** Sticky badge clear without destroying a live offer (joboffer / vehiclestatus). */
+function _onlineJobCountZeroStickyPatch() {
+  return {
+    jobCount: 0,
+    currentJobId: null,
+    jobId: null,
+    BookingId: null,
+    bookingId: null,
+  };
+}
+
+/**
  * Force online/{cid}/{vid} (+ /current) to Available after No Show / trip clear.
  * Unlike _clearOnlineTripFieldsForBooking, does not require currentJobId match —
  * No Show must never leave presence stuck on Offered/Assigned/Picking.
+ * Skips the wipe when online already points at a different live job/offer.
  */
-async function _forceOnlinePresenceAvailable(cid, vehId, source) {
+async function _forceOnlinePresenceAvailable(cid, vehId, source, opts) {
+  opts = opts || {};
   const _cid = String(cid || '').trim();
   const _vid = String(vehId || '').trim();
   const _src = source || 'force-available';
+  const _exclude = opts.excludeBookingId != null ? String(opts.excludeBookingId).trim() : '';
   if (!_cid || !_vid) return { ok: false };
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return { ok: false };
+    try {
+      const snap = await firebaseDbGet(`online/${_cid}/${_vid}`, tok);
+      const ptr = _onlineBookingPointer(snap || {});
+      if (ptr && ptr !== _exclude) {
+        const live = jobStore.find(j => j && String(j.Id) === ptr);
+        const st = live ? String(live.BookingStatus || '') : '';
+        if (live && ['Offered', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued', 'Busy'].includes(st)) {
+          console.log(`  [${_src}] skip force Available — online points at live #${ptr} (${st})`);
+          return { ok: true, skipped: true, reason: 'live_pointer', pointer: ptr };
+        }
+      }
+    } catch (_eRead) { /* best-effort; fall through to force clear */ }
     const patch = _onlineTripClearPatch('Available', { jobCount: 0 });
     await firebaseDbPatch(`online/${_cid}/${_vid}`, patch, tok)
       .catch((e) => console.warn(`  [${_src}] online/${_cid}/${_vid} Available failed: ${e && e.message}`));
@@ -1742,9 +1784,8 @@ async function _clearOnlineTripFieldsForBooking(cid, vehId, bookingId, logTag) {
   const _clearIfMatch = async (url, label) => {
     const g = await fbRequest(`${url}?auth=${auth}`, 'GET', null);
     const node = g.body || {};
-    // Only match booking pointers — never treat joboffer flags as a booking id
-    // (joboffer:1 would skip clear and leave sticky currentJobId / JOBS badge).
-    const cur = String(node.currentJobId || node.jobId || node.BookingId || node.bookingId || '');
+    // Protect a live offer/trip for a different booking. Ignore joboffer:1 flags.
+    const cur = _onlineBookingPointer(node);
     if (cur && cur !== _bId) return false;
     await fbRequest(`${url}?auth=${auth}`, 'PATCH', _onlineTripClearPatch('Available', { jobCount: 0 }));
     console.log(`${_tag} ${label} cleared (was #${_bId})`);
@@ -3421,7 +3462,9 @@ async function cancelBooking(opts) {
           const _vidForPresence = _rVid || _vehId;
           const _hasOtherTrip = _driverHasActiveTripJob(_rDrv, _cid, bookingId);
           if (!_hasOtherTrip && _vidForPresence) {
-            await _forceOnlinePresenceAvailable(_cid, _vidForPresence, `${source}/cancel-presence`);
+            await _forceOnlinePresenceAvailable(_cid, _vidForPresence, `${source}/cancel-presence`, {
+              excludeBookingId: bookingId,
+            });
             await _syncDriverJobCount(_cid, _rDrv, `${source}/cancel-jobCount`);
             if (_cid && _rDrv) {
               applyZoneQueueSyncForDriver(_cid, _rDrv, _vidForPresence, `${source}/cancel-Available`);
@@ -5778,13 +5821,11 @@ async function _syncDriverJobCount(cid, driverId, sourceTag) {
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return;
-    // When no live jobs remain, also clear sticky trip pointers so dispatch
-    // JOBS:N badges (Math.max(store, online.jobCount)) cannot stay inflated.
+    // Offered jobs are NOT counted by _computeDriverJobCount. A full trip clear
+    // here (joboffer:0 / vehiclestatus) races offer fanout and kills assignAccept.
+    // When count is 0 only drop sticky badge pointers — never wipe live offers.
     const patch = count === 0
-      ? _onlineTripClearPatch(
-          (zd && (zd.vehiclestatus || zd.VehicleStatus)) || 'Available',
-          { jobCount: 0 },
-        )
+      ? _onlineJobCountZeroStickyPatch()
       : { jobCount: count };
     await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok).catch(() => {});
     await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok).catch(() => {});
