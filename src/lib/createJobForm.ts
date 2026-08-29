@@ -718,6 +718,9 @@ export function buildJobChangesFromForm(
     Acc_client_id: form.accClientId,
     Acc_manager_id: form.accManagerId,
     Account_id: form.accountId,
+    Nextstop: String(form.stops.filter((s) => s.address).length),
+    nextstopdata: stopsPayload(form.stops),
+    Stops: form.stops.filter((s) => s.address).map((s) => s.address),
   };
 
   if (includeAssignment) {
@@ -806,12 +809,20 @@ export function jobToForm(job: Job): CreateJobFormState {
   const svc = String(job.serviceType || 'taxi').toLowerCase();
   const serviceType = CJ_SERVICES.includes(svc as (typeof CJ_SERVICES)[number]) ? svc : 'taxi';
 
+  const hydratedStops: StopPoint[] = (job.stops ?? []).map((s, i) => ({
+    id: `stop-${i}-${String(s.address || '').slice(0, 12)}`,
+    address: String(s.address || ''),
+    lat: Number(s.lat) || 0,
+    lng: Number(s.lng) || 0,
+  }));
+
   return {
     ...form,
     pick: { address: job.pickAddress || '', lat: pick?.lat ?? 0, lng: pick?.lng ?? 0 },
     pickInput: job.pickAddress || '',
     drop: { address: job.dropAddress || '', lat: drop?.lat ?? 0, lng: drop?.lng ?? 0 },
     dropInput: job.dropAddress || '',
+    stops: hydratedStops,
     name: job.passengerName || '',
     phone: job.passengerPhone || '',
     notes,
