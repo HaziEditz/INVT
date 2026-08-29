@@ -7894,11 +7894,24 @@ async function passengerImComing(opts) {
   const bookingId = parseInt(opts.bookingId) || 0;
   const source = opts.source || 'passengerImComing';
   if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
-  const idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  let idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  // Live passenger jobs often exist only on Firebase until dispatch hydrates —
+  // without this, the button appears to do nothing (404 not_found).
+  if (idx === -1) {
+    const _hydrateCid = String(opts.companyId || opts.cid || '').trim();
+    if (_hydrateCid) {
+      const _hydrated = await _hydrateSingleJobFromFirebase(_hydrateCid, bookingId);
+      if (_hydrated) idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+    }
+  }
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
   const _cid = String(job.companyId || opts.companyId || '');
-  if (String(job.BookingStatus || '') !== 'Arrived') {
+  const _st = String(job.BookingStatus || '');
+  const _hasArrivedAt = !!(job.ArrivedTime || job.arrivedAt || job.arrivedAtMs ||
+    (job.stepTimes && (job.stepTimes.arrivedAt || job.stepTimes.ArrivedAt)));
+  // Accept Arrived, or Assigned/Picking when arrived timestamp already stamped.
+  if (_st !== 'Arrived' && !(_hasArrivedAt && (_st === 'Assigned' || _st === 'Picking'))) {
     return {
       ok: false,
       error_code: 'invalid_transition',
@@ -7906,11 +7919,18 @@ async function passengerImComing(opts) {
       currentStatus: job.BookingStatus,
     };
   }
+  const _waitRate = _waitingRateForJob(job);
+  const _extensionMin = Math.round(NOSHOW_EXTENSION_MS / 60000) || 5;
+  const _waitingCostEstimate = Math.round(_waitRate * _extensionMin * 100) / 100;
   if (job.imComingAt || job.noShowWaitExtended) {
     return {
       ok: true,
       idempotent: true,
       noShowDeadlineAt: job.noShowDeadlineAt || null,
+      extensionMs: NOSHOW_EXTENSION_MS,
+      extensionMinutes: _extensionMin,
+      waitingRatePerMin: _waitRate,
+      waitingCostEstimate: _waitingCostEstimate,
       version: parseInt(job.updateSeq) || 0,
       booking: _publicBooking(job),
     };
@@ -7921,6 +7941,9 @@ async function passengerImComing(opts) {
   job.noShowWaitExtended = true;
   job.NoShowWaitExtended = true;
   job.noShowDeadlineAt = new Date(noShowDeadlineMs(job, Date.now())).toISOString();
+  // Stamp the fixed extension waiting cost (company waiting-rate × 5 min).
+  job.imComingWaitingCost = _waitingCostEstimate;
+  job.ImComingWaitingCost = _waitingCostEstimate;
   _bumpJobUpdateSeq(job, 'passenger');
   saveJobStore();
   if (_cid) {
@@ -7930,16 +7953,45 @@ async function passengerImComing(opts) {
       noShowWaitExtended: true,
       NoShowWaitExtended: true,
       noShowDeadlineAt: job.noShowDeadlineAt,
+      imComingWaitingCost: _waitingCostEstimate,
+      ImComingWaitingCost: _waitingCostEstimate,
       updateSeq: job.updateSeq,
-      eventType: 'updated',
+      eventType: 'im_coming',
     }, false);
   }
-  console.log(`  [${source}] I'm coming #${bookingId} — no-show deadline extended +${NOSHOW_EXTENSION_MS}ms`);
+  // Notify the assigned driver (Alert + sound on app).
+  try {
+    const _drv = _normJobDriverId(job.DriverId) || String(job.DriverId || '').trim();
+    if (_drv && _drv !== '0' && _drv !== '-1') {
+      const _tok = await getFirebaseServerToken().catch(() => null);
+      if (_tok) {
+        await firebaseDbSet(`notification/${_drv}`, {
+          bookingid: `${bookingId},im_coming,${_drv},passenger,Passenger`,
+          content: `Passenger is coming — +${_extensionMin} min wait (est. $${_waitingCostEstimate.toFixed(2)} waiting)`,
+          type: 'im_coming',
+          eventType: 'im_coming',
+          bookingId,
+          seq: parseInt(job.updateSeq) || 0,
+          updatedAt: _FB_SERVER_TIMESTAMP,
+          imComingAt: nowIso,
+          noShowDeadlineAt: job.noShowDeadlineAt,
+          waitingCostEstimate: _waitingCostEstimate,
+          extensionMinutes: _extensionMin,
+        }, _tok).catch(() => {});
+      }
+    }
+  } catch (_eNotify) {
+    console.warn(`  [${source}] im-coming driver notify failed:`, _eNotify && _eNotify.message);
+  }
+  console.log(`  [${source}] I'm coming #${bookingId} — no-show deadline extended +${NOSHOW_EXTENSION_MS}ms wait≈$${_waitingCostEstimate}`);
   return {
     ok: true,
     imComingAt: nowIso,
     noShowDeadlineAt: job.noShowDeadlineAt,
     extensionMs: NOSHOW_EXTENSION_MS,
+    extensionMinutes: _extensionMin,
+    waitingRatePerMin: _waitRate,
+    waitingCostEstimate: _waitingCostEstimate,
     version: parseInt(job.updateSeq) || 0,
     booking: _publicBooking(job),
   };
