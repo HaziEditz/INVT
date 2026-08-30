@@ -11,7 +11,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Mirror of passenger/website helpers — keep logic in this file so tests don't
 // depend on TS transpile of the app packages.
-const DISPATCH_HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+// Keep in sync with website/passenger companyBookingAvailability.ts (12m).
+const DISPATCH_HEARTBEAT_STALE_MS = 12 * 60 * 1000;
 
 function isCompanyDispatchOnline(sessions, nowMs = Date.now(), staleMs = DISPATCH_HEARTBEAT_STALE_MS) {
   if (!sessions || typeof sessions !== "object") return false;
@@ -53,8 +54,16 @@ describe("company ASAP availability", () => {
   it("dispatch offline when heartbeat stale", () => {
     const now = Date.now();
     assert.equal(
-      isCompanyDispatchOnline({ s1: { lastSeen: now - 10 * 60_000 } }, now),
+      isCompanyDispatchOnline({ s1: { lastSeen: now - 15 * 60_000 } }, now),
       false,
+    );
+  });
+
+  it("dispatch still online within 12m throttle window", () => {
+    const now = Date.now();
+    assert.equal(
+      isCompanyDispatchOnline({ s1: { lastSeen: now - 10 * 60_000, active: true } }, now),
+      true,
     );
   });
 
