@@ -16,6 +16,28 @@ test('pickupResolution helpers: pin + no-show wait charge', () => {
   assert.equal(needsPickupVerification({ BookingSource: 'passenger', PickupPin: '1234' }), true);
   assert.equal(needsPickupVerification({ BookingSource: 'Hail', source: 'hail' }), false);
   assert.equal(needsPickupVerification({ BookingSource: 'Dispatch Console' }), false);
+  // Prepaid Website / Card / paid — any source — needs verify (visible PIN)
+  assert.equal(
+    needsPickupVerification({ BookingSource: 'Website', paymentStatus: 'paid' }),
+    true,
+  );
+  assert.equal(
+    needsPickupVerification({ BookingSource: 'Website', PaymentType: 'Card' }),
+    true,
+  );
+  assert.equal(
+    needsPickupVerification({ BookingSource: 'Dispatch Console', PaymentType: 'Account' }),
+    true,
+  );
+  // Cash website still skips
+  assert.equal(
+    needsPickupVerification({
+      BookingSource: 'Website',
+      PaymentType: 'Cash',
+      paymentStatus: '',
+    }),
+    false,
+  );
 
   const charge = computeNoShowWaitCharge(
     { ArrivedAt: new Date(Date.now() - 7 * 60 * 1000).toISOString(), imComingAt: true },
@@ -25,6 +47,18 @@ test('pickupResolution helpers: pin + no-show wait charge', () => {
   assert.match(charge.reason, /No Show, waited \d+ minutes/);
   assert.equal(charge.waitingCharge, Math.round(charge.waitMinutes * 0.8 * 100) / 100);
   assert.equal(charge.extended, true);
+});
+
+test('resolveFanoutBookingSource: Website+PIN stays Website (not PassengerApp)', () => {
+  assert.equal(
+    resolveFanoutBookingSource({
+      BookingSource: 'Website',
+      CreatedBy: 'WEB',
+      WebBooking: true,
+      PickupPin: '4242',
+    }),
+    'Website',
+  );
 });
 
 test('resolveFanoutBookingSource: never invents DESK for passenger/PIN jobs', () => {

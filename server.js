@@ -87,6 +87,7 @@ const {
   generatePickupPin,
   isPassengerAppBooking,
   jobPickupPin,
+  ensurePickupPin,
   resolveFanoutBookingSource,
   needsPickupVerification,
   isPickupVerified,
@@ -7782,6 +7783,11 @@ async function driverStageJob(opts) {
     job.ArrivedAt = new Date().toISOString();
     job.noShowDeadlineAt = new Date(noShowDeadlineMs(job, Date.now())).toISOString();
   }
+  // Prepaid (any source, incl. Website) must show a real PIN at Arrived.
+  // Legacy web ingest stripped pins; stamp here so driver UI never shows "PIN: —".
+  if (nextStatus === 'Arrived') {
+    ensurePickupPin(job);
+  }
   if (nextStatus === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
   if (nextStatus === 'Assigned') {
     if (!job.assignedAt) job.assignedAt = Date.now();
@@ -7853,10 +7859,7 @@ async function verifyPickupForOnBoard(opts) {
   if (_jobDrv && _jobDrv !== driverId && String(job.DriverId) !== driverId) {
     return { ok: false, error_code: 'forbidden', error: 'job assigned to another driver' };
   }
-  if (!jobPickupPin(job) && needsPickupVerification(job)) {
-    job.PickupPin = generatePickupPin();
-    job.pickupPin = job.PickupPin;
-  }
+  ensurePickupPin(job);
   if (isPickupVerified(job)) {
     return {
       ok: true,
@@ -20529,10 +20532,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // Legacy: bare "passenger" without app markers on web confirm path → Website
         _pcJob.BookingSource = 'Website';
       }
-      if (_pcIsPax && !jobPickupPin(_pcJob)) {
-        const _pin = String(_pcBody.PickupPin || _pcBody.pickupPin || '').trim() || generatePickupPin();
-        _pcJob.PickupPin = _pin;
-        _pcJob.pickupPin = _pin;
+      // Prepaid Website + PassengerApp both need a visible Arrived PIN.
+      if (!jobPickupPin(_pcJob)) {
+        const _fromBody = String(_pcBody.PickupPin || _pcBody.pickupPin || '').trim();
+        if (_fromBody) {
+          _pcJob.PickupPin = _fromBody;
+          _pcJob.pickupPin = _fromBody;
+        } else {
+          ensurePickupPin(_pcJob);
+        }
       }
       saveJobStore();
       console.log(`[payment/confirm] jobStore job #${_pcJobId} → paymentStatus:'${_pcStatus}' BookingSource:'${_pcJob.BookingSource}'`);
@@ -20561,10 +20569,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       },
     );
     const _pcIsWebSrc = /web/i.test(_pcResolvedSrc) && !/passenger/i.test(_pcResolvedSrc);
+    // Keep PIN for Website prepaid too (was previously stripped for web sources).
     const _pcPinKeep =
-      (!_pcIsWebSrc &&
-        (jobPickupPin(_pcJob) ||
-          String(_pcBody.PickupPin || _pcBody.pickupPin || '').trim())) ||
+      jobPickupPin(_pcJob) ||
+      String(_pcBody.PickupPin || _pcBody.pickupPin || '').trim() ||
       '';
     const _pcFbJob = {
       BookingId:      _pcJobId,
@@ -20760,10 +20768,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (!_swJob.BookingSource) {
         _swJob.BookingSource = _swIsPax ? 'PassengerApp' : 'Website';
       }
-      if (_swIsPax && !jobPickupPin(_swJob)) {
-        _swJob.PickupPin = generatePickupPin();
-        _swJob.pickupPin = _swJob.PickupPin;
-      }
+      // Card-paid Website + PassengerApp both need a visible Arrived PIN.
+      ensurePickupPin(_swJob);
       saveJobStore();
       console.log(`[stripe/webhook] jobStore job #${_swBookingId} → paymentStatus:'paid' BookingSource:'${_swJob.BookingSource}' (charge=${_swChargeId} $${_swAmountPaid})`);
     } else {
@@ -20777,7 +20783,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       fallback: isPassengerAppBooking(_swJob) ? 'PassengerApp' : 'Website',
     });
     const _swIsWebSrc = /web/i.test(_swResolvedSrc) && !/passenger/i.test(_swResolvedSrc);
-    const _swPinKeep = (!_swIsWebSrc && jobPickupPin(_swJob)) || '';
+    // Keep PIN for Website prepaid too (was previously stripped for web sources).
+    const _swPinKeep = jobPickupPin(_swJob) || '';
     const _swFbJob = {
       BookingId:      _swBookingId,
       companyId:      _swCid,
@@ -26211,12 +26218,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _sId = parseInt(_ipjJobId, 10) || newCompanyJobId(_sCid);
             // §103 — store as 'Scheduled' so it shows in Unassigned with the Sched badge.
             // NotifyDispatchAt timer (client) will promote to 'Pending' at dispatch time.
-            const _sPin = (!_isWebBk)
-              ? String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() || generatePickupPin()
-              : '';
             const _sSrc = _isWebBk
               ? 'Website'
               : resolveFanoutBookingSource(_ipjJob, { fallback: 'PassengerApp' });
+            // Prepaid (Website Card too) + PassengerApp need a visible Arrived PIN.
+            // Cash Website stays pin-less.
+            const _sPinSeed = {
+              BookingSource: _sSrc,
+              CreatedBy: _ipjJob.CreatedBy || _ipjJob.createdBy || (_isWebBk ? 'WEB' : 'APP'),
+              paymentStatus: _sn.paymentStatus || _ipjJob.paymentStatus || '',
+              PaymentStatus: _ipjJob.PaymentStatus || '',
+              PaymentType: _ipjJob.PaymentType || _ipjJob.paymentType || '',
+              PaymentMethod: _sn.paymentMethod || '',
+              isPrePaid: _ipjJob.isPrePaid || _ipjJob.isPrepaid || false,
+              PickupPin: _ipjJob.PickupPin || _ipjJob.pickupPin || '',
+            };
+            const _sPin =
+              String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() ||
+              (needsPickupVerification(_sPinSeed) ? generatePickupPin() : '');
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
               BookingStatus: 'Scheduled', BookingSource: _sSrc,
@@ -26304,12 +26323,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               : null;
             const _wBdt = _wSf ? new Date(_wSf).toISOString() : (_wn.createdAt || new Date().toISOString());
             const _wStatus = _wTreatSched ? 'Scheduled' : 'Pending';
-            const _wPin = (!_isWebBkW)
-              ? String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() || generatePickupPin()
-              : '';
             const _wSrc = _isWebBkW
               ? 'Website'
               : resolveFanoutBookingSource(_ipjJob, { fallback: 'PassengerApp' });
+            // Prepaid (Website Card too) + PassengerApp need a visible Arrived PIN.
+            const _wPinSeed = {
+              BookingSource: _wSrc,
+              CreatedBy: _ipjJob.CreatedBy || _ipjJob.createdBy || (_isWebBkW ? 'WEB' : 'APP'),
+              paymentStatus: _wn.paymentStatus || _ipjJob.paymentStatus || '',
+              PaymentStatus: _ipjJob.PaymentStatus || '',
+              PaymentType: _ipjJob.PaymentType || _ipjJob.paymentType || '',
+              PaymentMethod: _wn.paymentMethod || '',
+              isPrePaid: _ipjJob.isPrePaid || _ipjJob.isPrepaid || false,
+              PickupPin: _ipjJob.PickupPin || _ipjJob.pickupPin || '',
+            };
+            const _wPin =
+              String(_ipjJob.PickupPin || _ipjJob.pickupPin || '').trim() ||
+              (needsPickupVerification(_wPinSeed) ? generatePickupPin() : '');
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
               BookingStatus: _wStatus,
