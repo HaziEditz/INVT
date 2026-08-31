@@ -4286,6 +4286,12 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   const _pickLL = _parseLatLngPair(job.PickLatLng);
   const _dropLL = _parseLatLngPair(job.DropLatLng);
   const _skipNotif = offerOpts.skipNotification === true;
+  const _vtOffer = String(job.VehicleType || job.vehicleType || '').trim();
+  const _createdByOffer = String(job.CreatedBy || job.createdBy || '').trim();
+  const _createdRawOffer = job.createdAt != null ? job.createdAt : job.CreatedAt;
+  const _createdMsOffer = typeof _createdRawOffer === 'number'
+    ? _createdRawOffer
+    : (Date.parse(String(_createdRawOffer || '')) || 0);
 
   const notifPayload = {
     type:           'job_offer',
@@ -4300,13 +4306,20 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     jobname:        String(job.Name || job.PassengerName || job.UserFName || ''),
     jobbags:        String(job.Bags ?? job.BagsNo ?? 0),
     jobpassengers:  String(job.Passengers ?? job.PassengersNo ?? 1),
-    jobvehicletype: String(job.VehicleType || ''),
+    jobvehicletype: _vtOffer,
+    VehicleType:    _vtOffer,
+    vehicleType:    _vtOffer,
     jobinfo:        String(job.EntitiesDetails || job.Notes || job.notes || ''),
     jobFare:        String(job.EstimatedFare || job.RideCost || job.CustomeRate || job.Fare || ''),
     jobCount:       1,
     jobServiceType: _svc,
     jobBookingSrc:  _src,
     BookingSource:  _src,
+    CreatedBy:      _createdByOffer || undefined,
+    createdBy:      _createdByOffer || undefined,
+    ...(_createdMsOffer > 0
+      ? { createdAt: _createdMsOffer, CreatedAt: _createdMsOffer }
+      : {}),
     PickupPin:      _offerPin || undefined,
     pickupPin:      _offerPin || undefined,
     DispatcherName: String(job.DispatcherName || job.dispatcherName || ''),
@@ -4424,6 +4437,12 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     TarriffType:     notifPayload.TarriffType,
     CustomeRate:     notifPayload.CustomeRate,
     Account_Name:    notifPayload.jobAccountName,
+    // Driver Offer/Current/Queue meta strip — must survive exclusive-offer patch.
+    ...(_vtOffer ? { VehicleType: _vtOffer, vehicleType: _vtOffer } : {}),
+    ...(_createdByOffer ? { CreatedBy: _createdByOffer, createdBy: _createdByOffer } : {}),
+    ...(_createdMsOffer > 0
+      ? { createdAt: _createdMsOffer, CreatedAt: _createdMsOffer }
+      : {}),
     manualOffer:     _isManualOffer,
     originalStatus:  _origStatus,
     version:         parseInt(job.updateSeq) || 0,
