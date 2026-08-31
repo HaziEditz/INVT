@@ -4104,6 +4104,124 @@ function _paymentAndBookingTypeFromCreateParams(param) {
   };
 }
 
+// ─── Passenger-facing cancel ↔ dispatch pool (half-cancel / #8312 class) ─────
+// Website My Rides / Passenger App write Cancelled to Passengerjobs (+ often
+// allbookings/pendingjobs) without always reaching jobStore.cancelBooking.
+// Auto-dispatch must never re-offer those zombies; heal them into Cancelled.
+const _PAX_CANCEL_CACHE = new Map(); // `${cid}:${bid}` → { at, cancelled }
+const _PAX_CANCEL_CACHE_MS = 20_000;
+let _paxJobsScanCache = { at: 0, byBid: new Map() }; // bid → { Status, passengerKey, CancelledAt }
+
+function _statusLooksCancelled(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  return s === 'cancelled' || s === 'canceled';
+}
+
+async function _refreshPassengerjobsCancelIndex(tok) {
+  if (!tok) return _paxJobsScanCache.byBid;
+  if (Date.now() - _paxJobsScanCache.at < _PAX_CANCEL_CACHE_MS && _paxJobsScanCache.byBid.size) {
+    return _paxJobsScanCache.byBid;
+  }
+  try {
+    const root = await firebaseDbGet('Passengerjobs', tok);
+    const byBid = new Map();
+    if (root && typeof root === 'object') {
+      for (const [pkey, jobs] of Object.entries(root)) {
+        if (!jobs || typeof jobs !== 'object') continue;
+        for (const [jid, row] of Object.entries(jobs)) {
+          if (!row || typeof row !== 'object') continue;
+          const bid = String(row.BookingId ?? row.bookingId ?? jid).trim();
+          if (!bid) continue;
+          const st = String(row.Status ?? row.status ?? '');
+          if (!_statusLooksCancelled(st)) continue;
+          byBid.set(bid, {
+            passengerKey: pkey,
+            Status: st,
+            CancelledAt: row.CancelledAt || row.cancelledAt || null,
+            CancelledBy: row.CancelledBy || row.cancelledBy || null,
+            BookingSource: row.BookingSource || row.Source || null,
+          });
+        }
+      }
+    }
+    _paxJobsScanCache = { at: Date.now(), byBid };
+    return byBid;
+  } catch (_e) {
+    return _paxJobsScanCache.byBid;
+  }
+}
+
+/** True when passenger-facing index says this booking is Cancelled (any source). */
+async function _passengerFacingIsCancelled(cid, bookingId, tok) {
+  if (!cid || !bookingId) return false;
+  const cacheKey = `${cid}:${bookingId}`;
+  const hit = _PAX_CANCEL_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.at < _PAX_CANCEL_CACHE_MS) return hit.cancelled;
+
+  let cancelled = false;
+  try {
+    if (!tok) tok = await getFirebaseServerToken().catch(() => null);
+    if (tok) {
+      const ab = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok).catch(() => null);
+      if (ab && typeof ab === 'object' && _statusLooksCancelled(_firebaseStatusPreferTerminal(ab))) {
+        cancelled = true;
+      }
+      if (!cancelled) {
+        const pj = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok).catch(() => null);
+        if (pj && typeof pj === 'object' && _statusLooksCancelled(_firebaseStatusPreferTerminal(pj))) {
+          cancelled = true;
+        }
+      }
+      if (!cancelled) {
+        const byBid = await _refreshPassengerjobsCancelIndex(tok);
+        if (byBid.has(String(bookingId))) cancelled = true;
+      }
+    }
+  } catch (_e) { /* best-effort */ }
+
+  _PAX_CANCEL_CACHE.set(cacheKey, { at: Date.now(), cancelled });
+  return cancelled;
+}
+
+/**
+ * If passenger already cancelled, close jobStore + Firebase pool and block offers.
+ * Returns true when the job was (or is now) terminal Cancelled.
+ */
+async function _healOrBlockPassengerCancelledJob(job, sourceTag) {
+  if (!job || !job.Id) return false;
+  const cid = String(job.companyId || '').trim();
+  if (!cid) return false;
+  const st = String(job.BookingStatus || '');
+  if (_TERMINAL_JOB_STATUSES.has(st)) return true;
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!(await _passengerFacingIsCancelled(cid, job.Id, tok))) return false;
+  const byBid = tok ? await _refreshPassengerjobsCancelIndex(tok) : _paxJobsScanCache.byBid;
+  const pax = byBid.get(String(job.Id));
+  const cancelledByRaw = String(pax?.CancelledBy || '').toLowerCase();
+  const cancelledBy =
+    cancelledByRaw === 'website' || cancelledByRaw === 'passenger'
+      ? cancelledByRaw
+      : (/website/i.test(String(job.BookingSource || job.Source || '')) || job.WebBooking)
+        ? 'website'
+        : 'passenger';
+  console.log(
+    `  [${sourceTag}] passenger-facing Cancelled blocks dispatch #${job.Id}` +
+      ` (paxKey=${pax?.passengerKey || '?'}) — closing via cancelBooking`,
+  );
+  _PAX_CANCEL_CACHE.delete(`${cid}:${job.Id}`);
+  await cancelBooking({
+    bookingId: job.Id,
+    companyId: cid,
+    cancelledBy,
+    driverFault: false,
+    source: `${sourceTag}/passenger-facing-cancelled`,
+    reason: pax?.CancelledAt
+      ? `Passenger cancelled at ${pax.CancelledAt}`
+      : 'Passenger cancelled (Passengerjobs)',
+  });
+  return true;
+}
+
 // Full manual-offer fanout — mirrors legacy writeJobDetailsToFirebase + pendingjobs patch.
 // Works for any job source (dispatch, website, app, auto-dispatch) and service type (taxi, food, freight, …).
 async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, offerOpts) {
@@ -4116,6 +4234,7 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   }
   const cid = String(job.companyId || '').trim();
   if (!cid) return;
+  if (await _healOrBlockPassengerCancelledJob(job, sourceTag)) return;
   const _validated = _validateDriverIdForWrite(driverId, { companyId: cid, source: `${sourceTag}/offer` });
   if (!_validated.ok) {
     console.error(`  [${sourceTag}] _writeManualDriverOffer REJECTED for job #${job.Id}: ${_validated.error}`);
@@ -9576,21 +9695,29 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         const _prevUseful = _prev != null && !(typeof _prev === 'string' && !_prev.trim());
         if (_curEmpty && _prevUseful) payload[_pk] = _prev;
       }
-      // Desk defaults must not overwrite a real passenger origin / PIN already on the node.
+      // Desk / system tags must not overwrite a real passenger or website origin.
       const _prevSrc = resolveFanoutBookingSource(existing, { fallback: '' });
       const _curSrc = resolveFanoutBookingSource(payload, { fallback: '' });
       const _curDesk =
         !_curSrc ||
         /^dispatch$/i.test(_curSrc) ||
-        /dispatch console/i.test(_curSrc);
-      const _prevPax =
+        /dispatch console/i.test(_curSrc) ||
+        /auto\s*dispatch/i.test(_curSrc);
+      const _prevCreated = String(existing.CreatedBy || existing.createdBy || '');
+      const _prevPaxOrWeb =
         /passenger/i.test(_prevSrc) ||
-        /^APP$/i.test(String(existing.CreatedBy || existing.createdBy || ''));
-      if (_prevPax && _curDesk) {
-        payload.BookingSource = _prevSrc || 'PassengerApp';
+        /website/i.test(_prevSrc) ||
+        /^APP$/i.test(_prevCreated) ||
+        /^WEB$/i.test(_prevCreated) ||
+        !!(existing.WebBooking || existing.webBooking);
+      if (_prevPaxOrWeb && _curDesk) {
+        payload.BookingSource = _prevSrc || (/^WEB$/i.test(_prevCreated) ? 'Website' : 'PassengerApp');
         payload.Source = payload.BookingSource;
         if (existing.CreatedBy || existing.createdBy) {
           payload.CreatedBy = existing.CreatedBy || existing.createdBy;
+        }
+        if (existing.WebBooking || existing.webBooking) {
+          payload.WebBooking = existing.WebBooking || existing.webBooking;
         }
       }
       const _prevPin = String(existing.PickupPin || existing.pickupPin || '').trim();
@@ -29052,10 +29179,13 @@ async function _writeDriverOfferNotification(cid, driver, job) {
 
   const vid = String(driver.VehicleId || driver.vehiclenumber || inStore.VehicleNo || '').trim();
   try {
+    // Preserve real origin (Website / PassengerApp / Dispatch Console). Never stamp
+    // "Auto Dispatch" — that corrupted Offer-tab DESK badges (#8692608312).
+    const _realSrc = resolveFanoutBookingSource(inStore, { fallback: '' });
     await _writeManualDriverOffer(inStore, did, vid, 'AutoDispatch', 'server-auto-dispatch', {
       originalStatus: 'pending',
       manualOffer: false,
-      bookingSource: 'Auto Dispatch',
+      bookingSource: _realSrc || undefined,
       skipNotification: abMismatch,
     });
     if (!abMismatch) inStore._offerNotifiedAt = Date.now();
@@ -29103,6 +29233,19 @@ async function _serverAutoDispatchTick() {
       const recon = await _reconcileJobStoreBeforeDispatch({ source: 'server-auto-dispatch' });
       if (recon.healed) {
         console.log(`[server-auto-dispatch] reconciled ${recon.healed} jobStore/Firebase drift(s) before tick`);
+      }
+      // Close pool zombies whose Passengerjobs row is already Cancelled (#8312 / 82585).
+      let paxHealed = 0;
+      for (const j of jobStore) {
+        if (!j || !j.Id) continue;
+        const st = String(j.BookingStatus || '');
+        if (st !== 'Pending' && st !== 'Offered' && st !== 'No One') continue;
+        if (await _healOrBlockPassengerCancelledJob(j, 'server-auto-dispatch/pax-cancel-scan')) {
+          paxHealed++;
+        }
+      }
+      if (paxHealed) {
+        console.log(`[server-auto-dispatch] healed ${paxHealed} passenger-cancelled pool zombie(s)`);
       }
     } catch (e) {
       console.warn(`[server-auto-dispatch] pre-tick reconcile failed: ${e && e.message}`);
@@ -29255,6 +29398,14 @@ async function _serverAutoDispatchTick() {
       const fresh = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
       if (!fresh || !_isDispatchableJob(fresh, cid)) {
         companyReport.skippedUnofferable.push({ id: job.Id, reason: 'job changed before offer' });
+        continue;
+      }
+      // Half-cancel heal: Passengerjobs Cancelled must close dispatch pool before offer.
+      if (await _healOrBlockPassengerCancelledJob(fresh, 'server-auto-dispatch')) {
+        companyReport.skippedUnofferable.push({
+          id: job.Id,
+          reason: 'passenger-facing Cancelled — healed closed',
+        });
         continue;
       }
       const _preOfferBlock = _driverBlockedFromAutoDispatch(best, cid);

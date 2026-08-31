@@ -24,6 +24,20 @@ test('allbookings live write refuses replacing authentic Cancelled', () => {
   assert.match(src, /existingSt === 'Cancelled'/);
 });
 
+test('auto-dispatch never stamps Auto Dispatch over real BookingSource', () => {
+  assert.doesNotMatch(src, /bookingSource:\s*'Auto Dispatch'/);
+  assert.match(src, /Preserve real origin \(Website \/ PassengerApp \/ Dispatch Console\)/);
+  assert.match(src, /_healOrBlockPassengerCancelledJob/);
+  assert.match(src, /_passengerFacingIsCancelled/);
+  assert.match(src, /\/auto\\s\*dispatch\/i/);
+});
+
+test('allbookings live write protects Website origin from Auto Dispatch desk tag', () => {
+  assert.match(src, /_prevPaxOrWeb/);
+  assert.match(src, /\^WEB\$\/i\.test\(_prevCreated\)/);
+  assert.match(src, /Website/);
+});
+
 test('hydrate copies website TM/Account payment stamps', () => {
   assert.match(src, /function _fbRecToJob/);
   assert.match(src, /accountNumber/);
