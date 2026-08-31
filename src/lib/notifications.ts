@@ -26,12 +26,25 @@ export interface JobOfferPayload {
   originalStatus: string;
   expiresAt: number;
   updatedAt: number;
+  jobinfo?: string;
+  Notes?: string;
+  Info?: string;
+  TarriffId?: string;
+  TariffId?: string;
+  TarriffName?: string;
+  TariffName?: string;
+  TarriffType?: string;
+  tariffId?: string;
+  tariffName?: string;
 }
 
 export async function writeJobOffer(driver: Driver, job: Job, companyId: string) {
   const db = getDb();
   const did = driver.driverId;
   const bid = job.id;
+  const tariffId = String(job.tariffId ?? '').trim();
+  const tariffName = String(job.tariffName ?? '').trim();
+  const notes = String(job.notes ?? '').trim();
   const payload: JobOfferPayload = {
     type: 'job_offer',
     bookingid: `${bid},Offered,${did},Dispatch,AutoDispatch`,
@@ -50,6 +63,20 @@ export async function writeJobOffer(driver: Driver, job: Job, companyId: string)
     originalStatus: 'pending',
     expiresAt: Date.now() + 30000,
     updatedAt: Date.now(),
+    jobinfo: notes,
+    Notes: notes,
+    Info: notes,
+    ...(tariffId
+      ? { TarriffId: tariffId, TariffId: tariffId, tariffId }
+      : {}),
+    ...(tariffName
+      ? {
+          TarriffName: tariffName,
+          TariffName: tariffName,
+          TarriffType: tariffName,
+          tariffName,
+        }
+      : {}),
   };
   await set(ref(db, `notification/${did}`), payload);
   await update(ref(db, `pendingjobs/${companyId}/${bid}`), {
@@ -60,6 +87,18 @@ export async function writeJobOffer(driver: Driver, job: Job, companyId: string)
     offeredAt: Date.now(),
     PickAddress: job.pickAddress,
     DropAddress: job.dropAddress,
+    ...(notes ? { Notes: notes, Info: notes, jobinfo: notes } : {}),
+    ...(tariffId
+      ? { TarriffId: tariffId, TariffId: tariffId, tariffId }
+      : {}),
+    ...(tariffName
+      ? {
+          TarriffName: tariffName,
+          TariffName: tariffName,
+          TarriffType: tariffName,
+          tariffName,
+        }
+      : {}),
   });
 }
 

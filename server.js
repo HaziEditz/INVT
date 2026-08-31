@@ -4370,6 +4370,12 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     TarriffType:    String(job.TarriffType || job.TarriffName || ''),
     TarriffId:      String(job.TarriffId ?? job.TariffId ?? job.tariffId ?? ''),
     TariffId:       String(job.TarriffId ?? job.TariffId ?? job.tariffId ?? ''),
+    TarriffName:    String(job.TarriffName ?? job.TariffName ?? job.TarriffType ?? ''),
+    TariffName:     String(job.TarriffName ?? job.TariffName ?? job.TarriffType ?? ''),
+    tariffId:       String(job.TarriffId ?? job.TariffId ?? job.tariffId ?? ''),
+    tariffName:     String(job.TarriffName ?? job.TariffName ?? job.TarriffType ?? ''),
+    Notes:          String(job.Notes || job.notes || ''),
+    Info:           String(job.Notes || job.notes || job.Info || ''),
     customRate:     String(job.CustomeRate || ''),
     CustomeRate:    String(job.CustomeRate || ''),
     originalStatus: _origStatus,
@@ -4435,6 +4441,15 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     PaymentType:     _payType,
     Pickingtime:     notifPayload.Pickingtime,
     TarriffType:     notifPayload.TarriffType,
+    TarriffId:       notifPayload.TarriffId,
+    TariffId:        notifPayload.TariffId,
+    TarriffName:     notifPayload.TarriffName,
+    TariffName:      notifPayload.TariffName,
+    tariffId:        notifPayload.tariffId,
+    tariffName:      notifPayload.tariffName,
+    Notes:           notifPayload.Notes,
+    Info:            notifPayload.Info,
+    jobinfo:         notifPayload.jobinfo,
     CustomeRate:     notifPayload.CustomeRate,
     Account_Name:    notifPayload.jobAccountName,
     // Driver Offer/Current/Queue meta strip — must survive exclusive-offer patch.
@@ -21343,10 +21358,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (_tId === '-1') {
             newJob.TarriffType = 'Fixed';
             newJob.TarriffId = '-1';
+            newJob.TariffId = '-1';
+            newJob.TarriffName = 'Fixed';
+            newJob.TariffName = 'Fixed';
             if (_cRate) { newJob.CustomeRate = _cRate; newJob.RideCost = _cRate; newJob.EstimatedFare = _cRate; }
-          } else if (_tName && _tName !== 'Automatic') {
-            newJob.TarriffType = _tName;
-            newJob.TariffId    = _tId;
+          } else if (_tId === '0' || (!_tId && (!_tName || _tName === 'Automatic'))) {
+            newJob.TarriffId = '0';
+            newJob.TariffId = '0';
+            newJob.TarriffName = 'Automatic';
+            newJob.TariffName = 'Automatic';
+            newJob.TarriffType = 'Automatic';
+          } else if (_tId || (_tName && _tName !== 'Automatic')) {
+            // Named tariff — stamp BOTH Id spellings + Name (driver offer path needs TarriffId).
+            if (_tId) {
+              newJob.TarriffId = _tId;
+              newJob.TariffId = _tId;
+            }
+            if (_tName) {
+              newJob.TarriffType = _tName;
+              newJob.TarriffName = _tName;
+              newJob.TariffName = _tName;
+            }
           } }
         const _insertExistIdx = jobStore.findIndex(j => j && j.Id === newId);
         if (_insertExistIdx >= 0 && jobStore[_insertExistIdx].createdVia === '/api/job/create') {
@@ -21392,9 +21424,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             CreatedAt:        new Date(newJob.createdAt).toISOString(),
             WebBooking:       false,
             Pickingtime:      String(newJob.BookingDateTime || ''),
-            TarriffType:      String(newJob.TarriffType || ''),
+            Notes:            String(newJob.Notes || ''),
+            Info:             String(newJob.Notes || ''),
+            DispatchNotes:    String(newJob.DispatchNotes || newJob.Notes || ''),
+            EntitiesDetails:  String(newJob.EntitiesDetails || ''),
+            jobinfo:          String(newJob.EntitiesDetails || newJob.Notes || ''),
+            TarriffType:      String(newJob.TarriffType || newJob.TarriffName || ''),
             TarriffId:        String(newJob.TarriffId ?? newJob.TariffId ?? ''),
-            TarriffName:      String(newJob.TarriffName ?? newJob.TariffName ?? ''),
+            TariffId:         String(newJob.TarriffId ?? newJob.TariffId ?? ''),
+            TarriffName:      String(newJob.TarriffName ?? newJob.TariffName ?? newJob.TarriffType ?? ''),
+            TariffName:       String(newJob.TarriffName ?? newJob.TariffName ?? newJob.TarriffType ?? ''),
+            tariffId:         String(newJob.TarriffId ?? newJob.TariffId ?? ''),
+            tariffName:       String(newJob.TarriffName ?? newJob.TariffName ?? newJob.TarriffType ?? ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
             Account_id:       String(newJob.Account_id || ''),
@@ -21605,10 +21646,26 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (_tId2 === '-1') {
             newJob.TarriffType = 'Fixed';
             newJob.TarriffId = '-1';
+            newJob.TariffId = '-1';
+            newJob.TarriffName = 'Fixed';
+            newJob.TariffName = 'Fixed';
             if (_cRate2) { newJob.CustomeRate = _cRate2; newJob.RideCost = _cRate2; newJob.EstimatedFare = _cRate2; }
-          } else if (_tName2 && _tName2 !== 'Automatic') {
-            newJob.TarriffType = _tName2;
-            newJob.TariffId    = _tId2;
+          } else if (_tId2 === '0' || (!_tId2 && (!_tName2 || _tName2 === 'Automatic'))) {
+            newJob.TarriffId = '0';
+            newJob.TariffId = '0';
+            newJob.TarriffName = 'Automatic';
+            newJob.TariffName = 'Automatic';
+            newJob.TarriffType = 'Automatic';
+          } else if (_tId2 || (_tName2 && _tName2 !== 'Automatic')) {
+            if (_tId2) {
+              newJob.TarriffId = _tId2;
+              newJob.TariffId = _tId2;
+            }
+            if (_tName2) {
+              newJob.TarriffType = _tName2;
+              newJob.TarriffName = _tName2;
+              newJob.TariffName = _tName2;
+            }
           } }
         jobStore.push(newJob);
         saveJobStore();
@@ -21647,9 +21704,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // §FIXED-PRICE / pickup-time / account name — driver app reads these
             // to suppress the meter on fixed-price jobs and display scheduled pickup.
             Pickingtime:      String(newJob.BookingDateTime || ''),
-            TarriffType:      String(newJob.TarriffType || ''),
+            Notes:            String(newJob.Notes || ''),
+            Info:             String(newJob.Notes || ''),
+            DispatchNotes:    String(newJob.DispatchNotes || newJob.Notes || ''),
+            EntitiesDetails:  String(newJob.EntitiesDetails || ''),
+            jobinfo:          String(newJob.EntitiesDetails || newJob.Notes || ''),
+            TarriffType:      String(newJob.TarriffType || newJob.TarriffName || ''),
             TarriffId:        String(newJob.TarriffId ?? newJob.TariffId ?? ''),
-            TarriffName:      String(newJob.TarriffName ?? newJob.TariffName ?? ''),
+            TariffId:         String(newJob.TarriffId ?? newJob.TariffId ?? ''),
+            TarriffName:      String(newJob.TarriffName ?? newJob.TariffName ?? newJob.TarriffType ?? ''),
+            TariffName:       String(newJob.TarriffName ?? newJob.TariffName ?? newJob.TarriffType ?? ''),
+            tariffId:         String(newJob.TarriffId ?? newJob.TariffId ?? ''),
+            tariffName:       String(newJob.TarriffName ?? newJob.TariffName ?? newJob.TarriffType ?? ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
             Account_id:       String(newJob.Account_id || ''),

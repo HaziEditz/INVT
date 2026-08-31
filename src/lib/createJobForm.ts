@@ -456,6 +456,8 @@ export function buildInsertParams(form: CreateJobFormState, dispatcherName: stri
     { name: 'Urgent', Value: form.urgent ? 'Yes' : 'No' },
     { name: 'FlightNo', Value: '' },
     { name: 'RoomNo', Value: '' },
+    // Top-level Notes so InsertBooking persists pickup notes to RTDB (not only EntitiesDetails).
+    { name: 'Notes', Value: form.notes || '' },
     { name: 'EntitiesDetails', Value: paymentExtras(form) },
     { name: 'DateTime', Value: bookingDateTime },
     { name: 'DispatchMinutes', Value: '' },
