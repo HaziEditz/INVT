@@ -5127,6 +5127,22 @@ function _completeFanoutExtras(job) {
     ...(_createdMs > 0 ? { createdAt: _createdMs, CreatedAt: _createdMs } : {}),
     ...(_acceptedIso ? { DriverAcceptedAt: _acceptedIso, driverAcceptedAt: _acceptedIso } : {}),
     ...(_arrivedIso ? { ArrivedAt: _arrivedIso, arrivedAt: _arrivedIso } : {}),
+    // Intermediate stops — Closed Job + allbookings complete SET must keep them
+    ...(job.Nextstop != null && String(job.Nextstop) !== ''
+      ? { Nextstop: job.Nextstop, nextstop: job.Nextstop }
+      : {}),
+    ...(job.nextstopdata
+      ? { nextstopdata: job.nextstopdata, Nextstopdata: job.nextstopdata }
+      : {}),
+    ...(Array.isArray(job.Stops) && job.Stops.length
+      ? { Stops: job.Stops }
+      : {}),
+    ...(Array.isArray(job.stops) && job.stops.length
+      ? { stops: job.stops }
+      : {}),
+    ...(Array.isArray(job.extraStops) && job.extraStops.length
+      ? { extraStops: job.extraStops }
+      : {}),
     ...(_onboardIso
       ? { OnBoardAt: _onboardIso, onBoardAt: _onboardIso, ActiveAt: _onboardIso, activeAt: _onboardIso }
       : {}),
@@ -5433,6 +5449,37 @@ async function completeBooking(opts) {
   // arbitrary writes; unknown fields are ignored.
   if (opts.payload && typeof opts.payload === 'object') {
     _applyCompletePayloadFields(job, opts.payload, { preferIncoming: true });
+  }
+  // If jobStore lost intermediate stops, recover from Firebase before archive
+  // so Closed Job / completedJobs keep them (#86926090112).
+  if (_cid && !(
+    (Array.isArray(job.Stops) && job.Stops.length) ||
+    (Array.isArray(job.stops) && job.stops.length) ||
+    (job.nextstopdata && String(job.nextstopdata).length > 2) ||
+    (parseInt(job.Nextstop, 10) > 0)
+  )) {
+    try {
+      const tok = await getFirebaseServerToken().catch(() => null);
+      if (tok) {
+        const [ab, paxUid] = await Promise.all([
+          firebaseDbGet(`allbookings/${_cid}/${bookingId}`, tok).catch(() => null),
+          Promise.resolve(_passengerUidFromRecord(job)),
+        ]);
+        let pax = null;
+        const uid = paxUid || (ab ? _passengerUidFromRecord(ab) : '');
+        if (uid) {
+          pax = await firebaseDbGet(`Passengerjobs/${uid}/${bookingId}`, tok).catch(() => null);
+        }
+        const src = (pax && typeof pax === 'object' ? pax : null) ||
+          (ab && typeof ab === 'object' ? ab : null);
+        if (src) {
+          if (src.Nextstop != null && job.Nextstop == null) job.Nextstop = src.Nextstop;
+          if (src.nextstopdata && !job.nextstopdata) job.nextstopdata = src.nextstopdata;
+          if (Array.isArray(src.Stops) && src.Stops.length && !job.Stops) job.Stops = src.Stops;
+          if (Array.isArray(src.stops) && src.stops.length && !job.stops) job.stops = src.stops;
+        }
+      }
+    } catch (_eStop) { /* best-effort */ }
   }
   // Offline / late sync: prefer confirm-time JobCompleteTime / stepTimes over upload clock.
   (function _preserveConfirmCompleteTime() {
@@ -6471,6 +6518,14 @@ function _buildAllbookingsMirrorFromJob(job) {
     serviceType: job.serviceType || job.ServiceType || 'taxi',
     ServiceType: job.serviceType || job.ServiceType || 'taxi',
     Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
+    ...(job.Nextstop != null && String(job.Nextstop) !== ''
+      ? { Nextstop: job.Nextstop, nextstop: job.Nextstop }
+      : {}),
+    ...(job.nextstopdata
+      ? { nextstopdata: job.nextstopdata }
+      : {}),
+    ...(Array.isArray(job.Stops) && job.Stops.length ? { Stops: job.Stops } : {}),
+    ...(Array.isArray(job.stops) && job.stops.length ? { stops: job.stops } : {}),
     PaymentType: normed.paymentMethod,
     PaymentMethod: normed.paymentMethod,
     paymentType: normed.paymentMethod,
@@ -9747,6 +9802,9 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         'giftCardCode', 'GiftCardCode',
         'stripeSessionId', 'stripeChargeId', 'isPrePaid', 'isPrepaid',
         'Fare', 'fare', 'TotalFare', 'CustomeRate', 'TarriffId', 'isFixedPrice',
+        // Intermediate stops — complete SET used to wipe these (#86926090112)
+        'Nextstop', 'nextstop', 'nextstopdata', 'Nextstopdata',
+        'Stops', 'stops', 'extraStops',
         // §FIX source/PIN — never wipe passenger origin or pickup PIN on force SET
         'BookingSource', 'bookingSource', 'Source', 'source', 'CreatedBy', 'createdBy',
         'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'PickupVerifiedAt',
@@ -11069,6 +11127,10 @@ async function updateBooking(opts) {
           await firebaseDbPatch(`pendingjobs/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB pendingjobs patch failed: ${_e.message}`); });
         }
         await firebaseDbPatch(`allbookings/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB allbookings patch failed: ${_e.message}`); });
+        // Keep Passengerjobs in sync for stops/destination so Closed Job + Active Ride recover.
+        await _mirrorPassengerJobsStatus(_cid, bookingId, _fbChanged, _tok).catch((_e) =>
+          console.warn(`  [${source}] §FIX-UB Passengerjobs mirror failed: ${_e && _e.message}`),
+        );
         // §FIX-DA-G2 — booking-keyed child: patch jobs/{cid}/{vid}/{drv}/{bookingId}
         // directly. The pre-read + cross-booking guard from §FIX-UB is no longer
         // needed: an edit to booking B can never clobber booking A because they
@@ -11315,6 +11377,20 @@ function _firebaseStatusPreferTerminal(fb) {
     if (!s) continue;
     if (_TERMINAL_JOB_STATUSES.has(s)) return s;
     if (!fallback) fallback = s;
+  }
+  // Heal website-scheduler split-brain: Status/status already Pending while
+  // BookingStatus is still Scheduled past NotifyDispatchAt / pickup window.
+  // Preferring BookingStatus alone left jobs forever undeliverable (#8692608313).
+  const bookingSt = String(fb.BookingStatus || '').trim();
+  const statusSt = String(fb.Status || fb.status || '').trim();
+  if (bookingSt === 'Scheduled' && statusSt === 'Pending') {
+    const notifyAt = fb.NotifyDispatchAt || fb.notifyDispatchAt;
+    const notifyMs = notifyAt ? Date.parse(String(notifyAt)) : NaN;
+    const schedMs = Number(fb.ScheduledFor || fb.ScheduledForMs || 0) || 0;
+    const now = Date.now();
+    if ((!Number.isNaN(notifyMs) && now >= notifyMs) || (schedMs > 0 && now >= schedMs)) {
+      return 'Pending';
+    }
   }
   return fallback;
 }
@@ -28773,7 +28849,7 @@ function _mergeFbIntoJob(job, fb) {
   if (fb.Name || fb.passengerName) job.Name = fb.Name || fb.passengerName || job.Name;
   if (fb.DriverId || fb.driverId) job.DriverId = fb.DriverId || fb.driverId;
   if (fb.VehicleNo || fb.vehicleId) job.VehicleNo = fb.VehicleNo || fb.vehicleId;
-  const st = fb.BookingStatus || fb.Status || fb.status;
+  const st = _firebaseStatusPreferTerminal(fb) || fb.BookingStatus || fb.Status || fb.status;
   if (st && _HYDRATE_ACTIVE.has(String(st))) job.BookingStatus = String(st);
   if (String(st || job.BookingStatus || '') === 'Offered') {
     const offeredMs = _offeredAtMsFromFbRecord(fb);
@@ -29640,15 +29716,26 @@ async function _releaseScheduledJobs() {
     }
     promoted.push(j);
 
-    if (j._fbKey && j.companyId) {
-      const fbKeyPart = String(j._fbKey).includes(':') ? String(j._fbKey).split(':').pop() : String(j._fbKey);
+    if (j.companyId && j.Id) {
+      const fbKeyPart = j._fbKey
+        ? (String(j._fbKey).includes(':') ? String(j._fbKey).split(':').pop() : String(j._fbKey))
+        : String(j.Id);
+      const pendingBoth = { Status: 'Pending', status: 'Pending', BookingStatus: 'Pending' };
       try {
-        await firebaseDbPatch(`pendingjobs/${j.companyId}/${fbKeyPart}`, { Status: 'Pending', status: 'Pending' }, tok);
+        await firebaseDbPatch(`pendingjobs/${j.companyId}/${fbKeyPart}`, pendingBoth, tok);
+        await firebaseDbPatch(`allbookings/${j.companyId}/${fbKeyPart}`, pendingBoth, tok);
       } catch (e) {
         console.warn(`[sched-release] Firebase patch failed job#${j.Id}:`, e.message);
       }
       await _writePendingJobFirebase(j.companyId, j.Id, j, 'Pending');
     }
+  }
+  // Also heal Firebase-only split-brain rows (Status=Pending, BookingStatus=Scheduled
+  // past release) that may not yet be in jobStore or were reverted by PreferTerminal.
+  try {
+    await _healPendingScheduledStatusSplitBrain(tok, now);
+  } catch (e) {
+    console.warn('[sched-release] split-brain heal failed:', e && e.message);
   }
   if (promoted.length) {
     saveJobStore();
@@ -29662,4 +29749,87 @@ async function _releaseScheduledJobs() {
       });
     }
   }
+}
+
+/**
+ * Heal Status=Pending + BookingStatus=Scheduled (past NotifyDispatchAt) on
+ * pendingjobs/allbookings so accept + auto-dispatch see Pending.
+ * Also align Cancelled/Completed Status with BookingStatus for zombie pool rows.
+ */
+async function _healPendingScheduledStatusSplitBrain(tok, nowMs) {
+  if (!tok) return { healed: 0 };
+  const now = nowMs || Date.now();
+  const cids = typeof _fixsCollectCompanyIds === 'function' ? _opsCollectCompanyIds() : [];
+  let healed = 0;
+  for (const cid of cids) {
+    let body;
+    try {
+      const r = await fbRequest(
+        `${FB_DB_URL}/pendingjobs/${cid}.json?auth=${encodeURIComponent(tok)}`,
+        'GET', null, null, 8_000,
+      );
+      if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
+      body = r.body;
+    } catch (_e) {
+      continue;
+    }
+    for (const [key, rec] of Object.entries(body)) {
+      if (!rec || typeof rec !== 'object') continue;
+      const bookingSt = String(rec.BookingStatus || '').trim();
+      const statusSt = String(rec.Status || rec.status || '').trim();
+      if (!bookingSt || !statusSt || bookingSt === statusSt) continue;
+
+      // Past-release Scheduled + Pending Status → promote BookingStatus.
+      if (bookingSt === 'Scheduled' && statusSt === 'Pending') {
+        const notifyAt = rec.NotifyDispatchAt || rec.notifyDispatchAt;
+        const notifyMs = notifyAt ? Date.parse(String(notifyAt)) : NaN;
+        const schedMs = Number(rec.ScheduledFor || rec.ScheduledForMs || 0) || 0;
+        const past =
+          (!Number.isNaN(notifyMs) && now >= notifyMs) ||
+          (schedMs > 0 && now >= schedMs);
+        if (!past) continue;
+        const patch = { BookingStatus: 'Pending', Status: 'Pending', status: 'Pending' };
+        try {
+          await firebaseDbPatch(`pendingjobs/${cid}/${key}`, patch, tok);
+          await firebaseDbPatch(`allbookings/${cid}/${key}`, patch, tok);
+          const bid = parseInt(rec.BookingId || rec.Id || key, 10) || 0;
+          const existing = bid
+            ? jobStore.find((j) => j && j.Id === bid && String(j.companyId || '') === String(cid))
+            : null;
+          if (existing && existing.BookingStatus === 'Scheduled') {
+            const prev = existing.BookingStatus;
+            existing.BookingStatus = 'Pending';
+            if (typeof _bumpSeqAndEmitStatus === 'function') {
+              _bumpSeqAndEmitStatus(existing, prev, 'system', 'sched-split-heal', { action: 'promote' });
+            }
+          }
+          healed++;
+          console.log(`[sched-split-heal] #${key} cid=${cid} BookingStatus Scheduled→Pending`);
+        } catch (e) {
+          console.warn(`[sched-split-heal] #${key} failed:`, e && e.message);
+        }
+        continue;
+      }
+
+      // Terminal Status with stale Scheduled BookingStatus — align BookingStatus.
+      if (bookingSt === 'Scheduled' && _TERMINAL_JOB_STATUSES.has(statusSt)) {
+        const patch = { BookingStatus: statusSt, Status: statusSt, status: statusSt };
+        try {
+          await firebaseDbPatch(`pendingjobs/${cid}/${key}`, patch, tok);
+          await firebaseDbPatch(`allbookings/${cid}/${key}`, patch, tok);
+          // Terminal leftovers do not belong in the offer pool.
+          await fbRequest(
+            `${FB_DB_URL}/pendingjobs/${cid}/${key}.json?auth=${encodeURIComponent(tok)}`,
+            'DELETE',
+          ).catch(() => {});
+          healed++;
+          console.log(`[sched-split-heal] #${key} cid=${cid} aligned BookingStatus→${statusSt}, removed pendingjobs`);
+        } catch (e) {
+          console.warn(`[sched-split-heal] terminal align #${key} failed:`, e && e.message);
+        }
+      }
+    }
+  }
+  if (healed) saveJobStore();
+  return { healed };
 }
