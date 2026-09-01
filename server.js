@@ -8204,6 +8204,9 @@ function _normalizePassengerEditChanges(raw) {
   // array so summaries never become "stops → [object Object]".
   if (Array.isArray(c.stops)) delete c.stops;
 
+  if (c.Info != null && c.Notes == null) c.Notes = c.Info;
+  if (c.paymentMethod != null && c.PaymentMethod == null) c.PaymentMethod = c.paymentMethod;
+
   // Strip passenger-only aliases so they don't pollute jobStore / editHistory.
   for (const k of [
     'DropoffAddress', 'dropoffAddress', 'destination',
@@ -8220,7 +8223,8 @@ const _PASSENGER_EDIT_ALLOWED = new Set([
   'EstimatedFare', 'CustomeRate', 'RideCost', 'Fare',
   'JobDistance', 'distance', 'Distance',
   'Stops', 'stops', 'Nextstop', 'nextstopdata', 'extraStops',
-  'Notes', 'notes', 'JobInfo', 'Instructions',
+  'Notes', 'notes', 'Info', 'JobInfo', 'Instructions',
+  'PaymentMethod', 'paymentMethod',
 ]);
 
 const _PASSENGER_EDIT_BLOCKED_STATUSES = new Set([
@@ -8237,7 +8241,40 @@ async function passengerEditBooking(opts) {
   const source = opts.source || 'passengerEditBooking';
   if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
 
-  const idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  let idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+  // Scheduled / passenger-app jobs may live only on Firebase until dispatch hydrates.
+  if (idx === -1) {
+    const _hydrateCid = String(opts.companyId || opts.cid || '').trim();
+    if (_hydrateCid) {
+      let _hydrated = await _hydrateSingleJobFromFirebase(_hydrateCid, bookingId);
+      if (!_hydrated) {
+        const tok = await getFirebaseServerToken().catch(() => null);
+        if (tok) {
+          const auth = encodeURIComponent(tok);
+          for (const root of ['allbookings', 'pendingjobs']) {
+            try {
+              const r = await fbRequest(FB_DB_URL + '/' + root + '/' + _hydrateCid + '/' + bookingId + '.json?auth=' + auth, 'GET');
+              if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
+              const st = _firebaseStatusPreferTerminal(r.body);
+              const _passengerEditHydrateAllow = new Set(['Scheduled','Waiting','PendingPayment','Pending','Offered','Assigned','Picking','Queued','No One','Busy']);
+              if (!st || !_passengerEditHydrateAllow.has(String(st))) continue;
+              if (_TERMINAL_JOB_STATUSES.has(st)) continue;
+              if (_jobIsClosedInStore(bookingId)) continue;
+              if (_jobExistsInStore(bookingId, _hydrateCid)) continue;
+              const job = _fbRecToJob(bookingId, _hydrateCid, r.body, st);
+              if (!job) continue;
+              jobStore.push(job);
+              saveJobStore();
+              _hydrated = true;
+              console.log('[hydrate] passenger-edit #' + bookingId + ' from Firebase ' + root + ' (' + st + ')');
+              break;
+            } catch (e) { /* try next */ }
+          }
+        }
+      }
+      if (_hydrated) idx = jobStore.findIndex((j) => j && j.Id === bookingId);
+    }
+  }
   if (idx === -1) {
     if (_closedStoreBlocksMutation(bookingId)) {
       return { ok: false, error_code: 'closed', closed: true, error: 'job already closed' };
@@ -28845,6 +28882,16 @@ function _mergeFbIntoJob(job, fb) {
   }
   if (fb.imComingAt || fb.ImComingAt) {
     job.imComingAt = job.imComingAt || fb.imComingAt || fb.ImComingAt;
+  }
+    // Preserve passenger/website editHistory from Firebase (Closed Job detail).
+  const _hist = Array.isArray(fb.editHistory)
+    ? fb.editHistory
+    : Array.isArray(fb.EditHistory)
+      ? fb.EditHistory
+      : null;
+  if (_hist && _hist.length) {
+    const cur = Array.isArray(job.editHistory) ? job.editHistory : [];
+    job.editHistory = _hist.length >= cur.length ? _hist.slice(-30) : cur.slice(-30);
   }
   return job;
 }
