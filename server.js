@@ -3620,6 +3620,124 @@ async function _notifyPassengerRecall(cid, bookingId, opts) {
   }
 }
 
+/**
+ * Resolve Expo push token from booking fields or users/{uid}.expoPushToken,
+ * then send a high-priority push with default sound (works when app is closed).
+ */
+async function _sendPassengerExpoPush(opts) {
+  opts = opts || {};
+  const cid = String(opts.cid || '').trim();
+  const bookingId = String(opts.bookingId || '').trim();
+  const title = String(opts.title || 'BookaWaka');
+  const body = String(opts.body || '');
+  const data = opts.data && typeof opts.data === 'object' ? opts.data : { bookingId };
+  let booking = opts.booking && typeof opts.booking === 'object' ? opts.booking : null;
+  let token = String(opts.tokenHint || '').trim();
+
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return { ok: false, pushed: false, reason: 'no_token' };
+
+    if (!booking && cid && bookingId) {
+      try { booking = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok); } catch (_e) {}
+      if (!booking) {
+        try { booking = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok); } catch (_e2) {}
+      }
+    }
+
+    if (!token && booking) {
+      token = String(
+        booking.deviceUid || booking.DeviceUid || booking.expoPushToken ||
+        booking.deviceuid || booking.DeviceUID || '',
+      ).trim();
+    }
+
+    // Token may live on the user profile when booking was created before token registration.
+    if (!/^ExponentPushToken\[.+\]$/.test(token) && !/^ExpoPushToken\[.+\]$/.test(token)) {
+      const uid = booking
+        ? String(
+            booking.passengerUid || booking.PassengerUid || booking.passengerId ||
+            booking.PassengerId || booking.PassengerKey || booking.passengerKey || '',
+          ).trim()
+        : '';
+      if (uid && !uid.startsWith('web_') && uid !== 'guest') {
+        try {
+          const userRow = await firebaseDbGet(`users/${uid}`, tok);
+          if (userRow && typeof userRow === 'object') {
+            token = String(userRow.expoPushToken || userRow.deviceUid || '').trim();
+          }
+        } catch (_e3) { /* best-effort */ }
+      }
+    }
+
+    if (!/^ExponentPushToken\[.+\]$/.test(token) && !/^ExpoPushToken\[.+\]$/.test(token)) {
+      console.log(`  [pax-push] #${bookingId} no Expo token — push skipped`);
+      return { ok: true, pushed: false, reason: 'no_expo_token' };
+    }
+
+    const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        to: token,
+        title,
+        body,
+        data,
+        sound: 'default',
+        priority: 'high',
+        channelId: 'ride-updates',
+      }),
+    });
+    const pushBody = await pushRes.json().catch(() => ({}));
+    console.log(`  [pax-push] Expo push #${bookingId} status=${pushRes.status} title=${title}`);
+    return { ok: true, pushed: true, pushBody };
+  } catch (e) {
+    console.warn(`  [pax-push] failed #${bookingId}: ${e && e.message}`);
+    return { ok: false, pushed: false, reason: e && e.message };
+  }
+}
+
+async function _notifyPassengerStatusPush(cid, bookingId, status, extra) {
+  extra = extra || {};
+  const st = String(status || '').trim();
+  let title = 'Ride update';
+  let body = `Your booking status is now ${st}.`;
+  if (st === 'Assigned' || st === 'Accepted') {
+    title = 'Driver confirmed';
+    const name = String(extra.driverName || '').trim();
+    body = name
+      ? `${name} accepted your ride and is on the way.`
+      : 'Your driver accepted the ride and is on the way.';
+  } else if (st === 'Arrived') {
+    title = 'Driver arrived';
+    body = 'Your driver has arrived at the pickup.';
+  } else if (st === 'Picking' || st === 'EnRoute') {
+    title = 'Driver en route';
+    body = 'Your driver is heading to the pickup.';
+  } else if (st === 'Active' || st === 'OnTrip' || st === 'Started') {
+    title = 'Trip started';
+    body = 'Your trip is underway.';
+  } else if (st === 'Completed') {
+    title = 'Trip complete';
+    body = 'Thanks for riding with BookaWaka.';
+  } else if (st === 'Cancelled') {
+    title = 'Booking cancelled';
+    body = String(extra.message || 'Your booking was cancelled.');
+  }
+  return _sendPassengerExpoPush({
+    cid,
+    bookingId,
+    title,
+    body,
+    data: {
+      bookingId: String(bookingId),
+      type: 'status',
+      status: st,
+      companyId: String(cid || ''),
+    },
+  });
+}
+
 // ─── §FIX-CMD — State machine + assign/complete helpers + /api/job/command ───
 // Backend tasks 1.1 (unified command endpoint), 1.2 (state machine validator),
 // 1.7 (idempotency for assign+complete). Backward-safe — every existing
@@ -5923,6 +6041,10 @@ async function acceptBooking(opts) {
       driverId: _finalDrv,
     }).catch(() => {});
     await _syncDriverJobCount(_cid, _finalDrv, source);
+    // Background push so passenger hears driver-confirmed when app is closed.
+    void _notifyPassengerStatusPush(_cid, bookingId, 'Assigned', {
+      driverName: _acceptDriverName || '',
+    });
   }
   return {
     ok: true, idempotent: false, status: 'Assigned',
@@ -8049,6 +8171,11 @@ async function driverStageJob(opts) {
   }
 
   console.log(`  [${source}] job #${bookingId} (was ${prev}) → ${job.BookingStatus} by driver ${driverId}`);
+  if (_cid && (nextStatus === 'Arrived' || nextStatus === 'Assigned' || nextStatus === 'Active' || nextStatus === 'Picking')) {
+    void _notifyPassengerStatusPush(_cid, bookingId, nextStatus, {
+      driverName: String(job.DriverName || job.driverName || ''),
+    });
+  }
   return {
     ok: true, status: job.BookingStatus,
     version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job),
@@ -23895,6 +24022,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Arrived`);
+              void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
+                driverName: String(job.DriverName || job.driverName || ''),
+              });
             } else if (newStatus === 'Active' && !activatedOne &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived')) {
               job.BookingStatus = 'Active';
@@ -26164,6 +26294,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Arrived`);
+              void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
+                driverName: String(job.DriverName || job.driverName || ''),
+              });
             } else if (newStatus === 'Active' && !activatedOneDS &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived')) {
               job.BookingStatus = 'Active';
