@@ -5885,6 +5885,28 @@ async function acceptBooking(opts) {
           updateSeq:     job.updateSeq,
         }, _tok).catch(e => console.warn(`  [${source}] jobs/${_cid}/${_vid}/${_did}/${bookingId} accept write failed: ${e && e.message}`));
       }
+      // Passenger app listens to rideStatus/{cid}/{id} — accept fanout historically
+      // skipped this path, so after pendingjobs DELETE the UI could stay on
+      // "Finding your driver" if allbookings was sparse (#86926090112 / retest freeze).
+      if (_tok) {
+        const _rsPatch = {
+          Status: 'Assigned',
+          status: 'Assigned',
+          BookingStatus: 'Assigned',
+          DriverId: _did || _finalDrv || '',
+          driverId: _did || _finalDrv || '',
+          VehicleId: _vid || job.VehicleNo || job.VehicleId || '',
+          vehicleId: _vid || job.VehicleNo || job.VehicleId || '',
+          eventType: 'updated',
+          updateSeq: job.updateSeq,
+        };
+        if (_acceptDriverName) {
+          _rsPatch.DriverName = _acceptDriverName;
+          _rsPatch.driverName = _acceptDriverName;
+        }
+        await firebaseDbPatch(`rideStatus/${_cid}/${bookingId}`, _rsPatch, _tok)
+          .catch(e => console.warn(`  [${source}] rideStatus accept patch failed: ${e && e.message}`));
+      }
       await _mirrorDriverOnlineStatus(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, 'Assigned', source);
       await _mirrorDriverTripAddressesOnline(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, job, bookingId, source);
     } catch (e) {
