@@ -3524,8 +3524,8 @@ async function cancelBooking(opts) {
 
 /**
  * Notify passenger when a booked job is returned to the pool (wrong-passenger / recall).
- * Mirrors dispatch console `_bwNotifyPassengerRecall`: rideStatus RecallStatus,
- * Passengerjobs/{deviceUid} recallNotification, and Expo push when deviceUid is a token.
+ * Writes rideStatus RecallStatus + Passengerjobs recallNotification, then Expo push
+ * via _sendPassengerExpoPush (booking token with users/{uid} fallback).
  */
 async function _notifyPassengerRecall(cid, bookingId, opts) {
   opts = opts || {};
@@ -3562,58 +3562,45 @@ async function _notifyPassengerRecall(cid, bookingId, opts) {
       console.warn(`  [pax-recall-notify] rideStatus write failed #${bookingId}: ${e && e.message}`),
     );
 
-    const deviceUid = booking
+    const paxUid = booking
       ? String(
-          booking.deviceUid ||
-            booking.DeviceUid ||
-            booking.deviceuid ||
-            booking.DeviceUID ||
-            '',
+          booking.passengerUid || booking.PassengerUid || booking.passengerId ||
+          booking.PassengerId || booking.PassengerKey || booking.passengerKey || '',
         ).trim()
       : '';
-    if (!deviceUid) {
-      console.log(`  [pax-recall-notify] #${bookingId} rideStatus Recalled written (no deviceUid — push skipped)`);
-      return { ok: true, pushed: false, rideStatus: true };
+    if (paxUid && !paxUid.startsWith('web_') && paxUid !== 'guest') {
+      await firebaseDbPatch(`Passengerjobs/${paxUid}/${bookingId}`, {
+        recallNotification: {
+          message: recallMsg,
+          bookingId: String(bookingId),
+          timestamp: nowIso,
+          reason: isWrongPax ? 'wrong_passenger' : 'recalled',
+        },
+      }, tok).catch((e) =>
+        console.warn(`  [pax-recall-notify] Passengerjobs write failed: ${e && e.message}`),
+      );
     }
 
-    await firebaseDbPatch(`Passengerjobs/${deviceUid}`, {
-      recallNotification: {
-        message: recallMsg,
+    const push = await _sendPassengerExpoPush({
+      cid,
+      bookingId,
+      booking,
+      title: 'Booking Update',
+      body: recallMsg,
+      data: {
         bookingId: String(bookingId),
-        timestamp: nowIso,
+        type: 'recall',
         reason: isWrongPax ? 'wrong_passenger' : 'recalled',
+        companyId: String(cid || ''),
       },
-    }, tok).catch((e) =>
-      console.warn(`  [pax-recall-notify] Passengerjobs write failed: ${e && e.message}`),
-    );
-
-    const isExpoToken =
-      /^ExponentPushToken\[.+\]$/.test(deviceUid) || /^ExpoPushToken\[.+\]$/.test(deviceUid);
-    if (!isExpoToken) {
-      console.log(`  [pax-recall-notify] #${bookingId} deviceUid not Expo token — push skipped`);
-      return { ok: true, pushed: false, rideStatus: true, passengerjobs: true };
-    }
-
-    try {
-      const pushRes = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          to: deviceUid,
-          title: 'Booking Update',
-          body: recallMsg,
-          data: { bookingId: String(bookingId), type: 'recall', reason: isWrongPax ? 'wrong_passenger' : 'recalled' },
-          sound: 'default',
-          priority: 'high',
-        }),
-      });
-      const pushBody = await pushRes.json().catch(() => ({}));
-      console.log(`  [pax-recall-notify] Expo push #${bookingId} status=${pushRes.status}`);
-      return { ok: true, pushed: true, rideStatus: true, passengerjobs: true, pushBody };
-    } catch (e) {
-      console.warn(`  [pax-recall-notify] Expo push failed #${bookingId}: ${e && e.message}`);
-      return { ok: true, pushed: false, rideStatus: true, passengerjobs: true };
-    }
+    });
+    return {
+      ok: true,
+      pushed: !!(push && push.pushed),
+      rideStatus: true,
+      passengerjobs: !!(paxUid && !paxUid.startsWith('web_')),
+      push,
+    };
   } catch (e) {
     console.warn(`  [pax-recall-notify] failed #${bookingId}: ${e && e.message}`);
     return { ok: false, reason: e && e.message };
@@ -4164,6 +4151,14 @@ function _mirrorFbJobFields(changed) {
   if (out.Name != null) {
     out.PassengerName = out.Name;
     out.passengername = out.Name;
+  }
+  if (out.PassengerName != null && out.Name == null) {
+    out.Name = out.PassengerName;
+    out.name = out.PassengerName;
+  }
+  if (out.passengerName != null && out.Name == null) {
+    out.Name = out.passengerName;
+    out.PassengerName = out.PassengerName || out.passengerName;
   }
   if (out.PickAddress != null) out.pickAddress = out.PickAddress;
   if (out.DropAddress != null) {
@@ -20201,6 +20196,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     };
     console.log('[job/create] result:', JSON.stringify(_cjResult));
     try { console.time(`booking-gap-${_cjIdStr}`); } catch(e) {}
+
+    // Walk-up hail: notify the original booked passenger that a street pickup took the cab
+    // (recall already ran; this uses the hardened Expo path with users/{uid} token fallback).
+    if (_cjRelated > 0 && _cjSource === 'hail' && _cjCid) {
+      void _sendPassengerExpoPush({
+        cid: _cjCid,
+        bookingId: String(_cjRelated),
+        title: 'Booking Update',
+        body: "A walk-up passenger was collected. We're finding you another driver — your booking is still active.",
+        data: {
+          bookingId: String(_cjRelated),
+          type: 'walk_up_hail',
+          hailId: String(_cjIdNum),
+          companyId: String(_cjCid),
+        },
+      });
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(_cjResult));
     return;
@@ -27599,6 +27612,8 @@ function _driverEligibleForJob(driver, job) {
       } else if (reqPax >= 5) {
         // Allow WAV / wheelchair labelled vans for 5+
         if (!/van|wav|wheelchair|accessible/i.test(drvExactLower || drvCat || '')) return false;
+      } else if (reqCat === 'car' && drvCat === 'van' && reqPax < 5) {
+        // Van may take Sedan/car jobs under 5 pax — keep job VehicleType/fare as car (price lock).
       } else {
         return false;
       }

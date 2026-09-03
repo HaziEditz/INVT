@@ -7,6 +7,30 @@
         ".write": "auth != null"
       }
     },
+    "passengerIndex": {
+      ".read": "auth != null",
+      "phone": {
+        "$digits": {
+          ".read": "auth != null",
+          ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid || data.child('key').val() === auth.uid || !data.hasChild('email') || (data.hasChild('key') && data.child('key').val().matches(/^web_/)))",
+          ".validate": "newData.hasChildren(['key', 'uid', 'email']) && newData.child('uid').val() === auth.uid && newData.child('key').val() === auth.uid && newData.child('email').isString() && newData.child('email').val().matches(/@/)"
+        }
+      },
+      "email": {
+        "$emailKey": {
+          ".read": "auth != null",
+          ".write": "auth != null && newData.child('key').val() === auth.uid",
+          ".validate": "newData.hasChildren(['key']) && newData.child('key').val() === auth.uid"
+        }
+      },
+      "key": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "$uid === auth.uid && newData.hasChildren(['key'])"
+        }
+      }
+    },
     "sosHistory": {
       "$companyId": {
         ".validate": "$companyId!='null'",
