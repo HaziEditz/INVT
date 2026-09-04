@@ -27582,6 +27582,22 @@ function _jobPassengerCount(job) {
   return 1;
 }
 
+function _jobIsTotalMobility(job) {
+  if (!job) return false;
+  if (job.isTotalMobility === true || job.isTM === true || job.IsTM === true || job.tmUsed === true) {
+    return true;
+  }
+  const pay = String(job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '')
+    .trim()
+    .toLowerCase();
+  if (pay === 'tm' || pay === 'totalmobility' || pay === 'total mobility') return true;
+  if (job.tmCardNumber || job.tmVoucherNo) return true;
+  return false;
+}
+
+/** Big vans (10–11 seat) must not auto-substitute for open/car TM jobs. */
+var TM_BIG_VAN_MIN_SEATS = 10;
+
 function _driverEligibleForJob(driver, job) {
   if (!driver || !job) return false;
   if (!_driverCanDoService(driver, job)) return false;
@@ -27591,6 +27607,14 @@ function _driverEligibleForJob(driver, job) {
   if (reqPax >= 5) {
     reqCat = 'van';
   }
+  const cap = parseInt(driver.seatCapacity || driver.seats || driver.capacity || '4', 10) || 4;
+
+  // TM + open/"Any"/car: never auto-match 10+ seat big vans (Estima-class OK).
+  // Explicit Van/WAV selection may still use a big van.
+  if (_jobIsTotalMobility(job) && cap >= TM_BIG_VAN_MIN_SEATS && (!reqCat || reqCat === 'car')) {
+    return false;
+  }
+
   if (reqCat) {
     const drvExact = String(driver.vehicletype || '').trim();
     const drvCat = _normalizeDriverVehicleCategory(drvExact);
@@ -27612,14 +27636,12 @@ function _driverEligibleForJob(driver, job) {
       } else if (reqPax >= 5) {
         // Allow WAV / wheelchair labelled vans for 5+
         if (!/van|wav|wheelchair|accessible/i.test(drvExactLower || drvCat || '')) return false;
-      } else if (reqCat === 'car' && drvCat === 'van' && reqPax < 5) {
-        // Van may take Sedan/car jobs under 5 pax — keep job VehicleType/fare as car (price lock).
       } else {
+        // Exclusive: stamped Car never silently goes to Van, and vice versa.
         return false;
       }
     }
   }
-  const cap = parseInt(driver.seatCapacity || driver.seats || driver.capacity || '4', 10) || 4;
   return cap >= reqPax;
 }
 
