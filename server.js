@@ -6959,8 +6959,11 @@ async function _reconcileJobStoreBeforeDispatch(opts) {
 const STALE_OFFER_HEAL_MS = 2 * 60 * 1000;
 /** C2: driver went quiet while holding an offer — release before generic 2m heal. */
 const MID_OFFER_NETWORK_STALE_MS = 10 * 1000;
-/** Do not immediately send the same booking back to the driver who just went quiet. */
+/** Do not immediately send the same booking back to the driver who just
+ *  declined, timed out, or went quiet mid-offer (shared flicker root #9056). */
 const NETWORK_REDISPATCH_SAME_DRIVER_COOLDOWN_MS = 30 * 1000;
+/** Alias — decline/timeout use the same same-driver cooldown as network bounce. */
+const OFFER_SAME_DRIVER_COOLDOWN_MS = NETWORK_REDISPATCH_SAME_DRIVER_COOLDOWN_MS;
 const STALE_OFFER_QUARANTINE_MS = 10 * 60 * 1000;
 const HEAL_STUCK_OFFERED_JOB_TIMEOUT_MS = process.env.NODE_ENV === 'test' ? 15_000 : 5_000;
 const JOB_TRACE_RESPONSE_TIMEOUT_MS = 10_000;
@@ -7065,9 +7068,7 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   if (opts.networkBounce) {
     job.manualOffer = false;
     job._skipReleaseCooldownOnce = true;
-    job._networkFailedDriverId = String(prevDriver || '').trim();
-    job._networkFailedDriverUntil =
-      Date.now() + NETWORK_REDISPATCH_SAME_DRIVER_COOLDOWN_MS;
+    _stampSameDriverOfferCooldown(job, prevDriver, NETWORK_REDISPATCH_SAME_DRIVER_COOLDOWN_MS);
   }
   _bumpJobUpdateSeq(job, 'system');
   saveJobStore();
@@ -7456,10 +7457,45 @@ async function _midOfferPresenceProbe(job, now, sourceTag) {
 function _isDriverBlockedFromNetworkRedispatch(job, driverId, now) {
   const did = String(driverId || '').trim();
   if (!did || !job) return false;
-  const failed = String(job._networkFailedDriverId || '').trim();
-  if (!failed || failed !== did) return false;
-  const until = Number(job._networkFailedDriverUntil) || 0;
+  const failed = String(job._networkFailedDriverId || job._offerBlockedDriverId || '').trim();
+  if (!failed) return false;
+  if (failed !== did && !_driverIdsMatch(failed, did)) return false;
+  const until = Number(job._networkFailedDriverUntil || job._offerBlockedDriverUntil) || 0;
   return until > (now || Date.now());
+}
+
+/** Block the driver who just declined / timed out / network-bounced from instant re-offer. */
+function _stampSameDriverOfferCooldown(job, driverId, ms) {
+  const did = String(driverId || '').trim();
+  if (!job || !did || did === '0') return;
+  const until = Date.now() + (ms != null ? ms : OFFER_SAME_DRIVER_COOLDOWN_MS);
+  job._networkFailedDriverId = did;
+  job._networkFailedDriverUntil = until;
+  job._offerBlockedDriverId = did;
+  job._offerBlockedDriverUntil = until;
+}
+
+function _clearSameDriverOfferCooldown(job) {
+  if (!job) return;
+  delete job._networkFailedDriverId;
+  delete job._networkFailedDriverUntil;
+  delete job._offerBlockedDriverId;
+  delete job._offerBlockedDriverUntil;
+}
+
+/** True when every Available candidate is only blocked by same-driver cooldown (not network-stale). */
+function _allAvailableOnlySameDriverCooldown(drivers, job, now) {
+  if (!drivers || !drivers.length || !job) return false;
+  let anyCooldown = false;
+  for (const d of drivers) {
+    if (_networkOfferShouldSkipDriver(d, job.companyId, now)) return false;
+    if (_isDriverBlockedFromNetworkRedispatch(job, d.driverid, now)) {
+      anyCooldown = true;
+      continue;
+    }
+    return false;
+  }
+  return anyCooldown;
 }
 
 function _acceptPoolStatuses() {
@@ -8772,9 +8808,10 @@ async function driverDeclineJob(opts) {
   _stampLastOfferDriver(job, driverId);
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
   job.ReturnReason = job.returnReason;
-  // Durable next offer: skip the short release cooldown so auto-dispatch / assign
-  // can commit a real Offered outcome immediately (any booking source).
+  // Allow OTHER drivers immediately, but block THIS driver briefly so auto-dispatch
+  // does not re-offer within ~2s → mid-offer Network bounce flicker (#9056 / timeout).
   job._skipReleaseCooldownOnce = true;
+  _stampSameDriverOfferCooldown(job, driverId, OFFER_SAME_DRIVER_COOLDOWN_MS);
   _bumpJobUpdateSeq(job, 'driver');
   saveJobStore();
   _logJobPoolState(job, timedOut ? 'after-timeout' : 'after-decline');
@@ -29975,6 +30012,19 @@ async function _serverAutoDispatchTick() {
         return true;
       });
       if (!driversReachable.length) {
+        // Same-driver cooldown after decline/timeout: stay on U-A with Declined/Timeout
+        // reason — do NOT overwrite with false "Network issue" (#9056 flicker).
+        if (_allAvailableOnlySameDriverCooldown(drivers, job, now)) {
+          companyReport.skippedUnofferable.push({
+            id: job.Id,
+            reason: `same-driver offer cooldown (${drivers.length} Available blocked)`,
+          });
+          if (companyReport.action !== 'offered') companyReport.action = 'same_driver_cooldown';
+          console.log(
+            `[server-auto-dispatch] job #${job.Id} hold UA — same-driver cooldown after decline/timeout/network; trying next Pending`,
+          );
+          continue;
+        }
         // Available exist but none are network-reachable — stamp Network issue, then
         // busy-pool fanout, then try the next Pending so the company is not frozen.
         job.returnReason = NETWORK_OFFER_RETURN_REASON;
@@ -30069,8 +30119,7 @@ async function _serverAutoDispatchTick() {
       fresh.originalStatus = 'pending';
       if (_softSole) fresh._softStaleSoleOffer = true;
       else delete fresh._softStaleSoleOffer;
-      delete fresh._networkFailedDriverId;
-      delete fresh._networkFailedDriverUntil;
+      _clearSameDriverOfferCooldown(fresh);
       // Durable Offered + bookingEvents (was missing on auto-dispatch → limbo / no audit).
       _bumpSeqAndEmitStatus(fresh, _autoPrev, 'system', 'server-auto-dispatch', {
         action: 'offer',
