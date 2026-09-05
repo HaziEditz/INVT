@@ -180,6 +180,7 @@ test('wrong-passenger recall at Arrived returns job to Pending', async () => {
     paymentStatus: 'paid',
     isPrePaid: true,
     isFixedPrice: true,
+    TarriffId: '-1',
     BookingSource: 'PassengerApp',
   });
   // Also stamp allbookings so pool_restore preserve cannot resurrect a stale Cash default.
@@ -192,6 +193,7 @@ test('wrong-passenger recall at Arrived returns job to Pending', async () => {
     PaymentStatus: 'paid',
     isPrePaid: true,
     isFixedPrice: true,
+    TarriffId: '-1',
     BookingSource: 'PassengerApp',
   });
   await h.assignAccept(jobId, driverId);
@@ -233,6 +235,151 @@ test('wrong-passenger recall at Arrived returns job to Pending', async () => {
 
   const rs = await h.firebasePeek(`rideStatus/${h.companyId}/${jobId}`);
   assert.equal(String(rs?.RecallStatus || ''), 'Recalled', 'passenger rideStatus RecallStatus written');
+
+  await prepareCleanDispatch(h);
+});
+
+test('wrong-passenger recall → re-accept clears RecallStatus and allows re-Arrived', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = h.driverIds[2];
+  await h.ensureDriverReady(driverId);
+  const jobId = await h.createAsapJob('wrong-pax-reaccept');
+  // Firebase Auth-style uid so Passengerjobs mirror + clear paths engage.
+  const paxUid = 'ZtHI905QFqZU4Wj4RcZYY7nnV793';
+  await h.mutateJobStore(jobId, {
+    PaymentType: 'Card',
+    paymentType: 'Card',
+    PaymentMethod: '',
+    paymentMethod: '',
+    paymentStatus: 'paid',
+    isPrePaid: true,
+    isFixedPrice: true,
+    TarriffId: '-1',
+    TarriffType: 'Fixed',
+    CustomeRate: 9.34,
+    BookingSource: 'PassengerApp',
+    passengerUid: paxUid,
+    PassengerUid: paxUid,
+    passengerId: paxUid,
+  });
+  await h.setFirebaseBooking(jobId, {
+    PaymentType: 'Card',
+    paymentType: 'Card',
+    paymentStatus: 'paid',
+    PaymentStatus: 'paid',
+    isPrePaid: true,
+    isFixedPrice: true,
+    TarriffId: '-1',
+    TarriffType: 'Fixed',
+    CustomeRate: 9.34,
+    BookingSource: 'PassengerApp',
+    passengerUid: paxUid,
+    PassengerUid: paxUid,
+    passengerId: paxUid,
+  });
+
+  await h.assignAccept(jobId, driverId);
+  assert.equal((await h.stageJob(jobId, driverId, 'Arrived')).body.ok, true);
+
+  const recallRes = await h.driverCancel(jobId, driverId, {
+    wrongPassenger: true,
+    reason: 'Wrong passenger / uninvited — returned to pool',
+  });
+  assert.equal(recallRes.body.ok, true, JSON.stringify(recallRes.body));
+  assert.equal(recallRes.body.recalled, true);
+
+  await h.poll(
+    jobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Pending',
+    { timeoutMs: 25000 },
+  );
+
+  const rsRecalled = await h.firebasePeek(`rideStatus/${h.companyId}/${jobId}`);
+  assert.equal(String(rsRecalled?.RecallStatus || ''), 'Recalled');
+  assert.match(String(rsRecalled?.message || ''), /another driver|taken by someone|finding/i);
+
+  // Passengerjobs must carry the SAME RecallStatus field the app listens for.
+  let pjRecalled = null;
+  for (let i = 0; i < 20; i++) {
+    pjRecalled = await h.firebasePeek(`Passengerjobs/${paxUid}/${jobId}`);
+    if (String(pjRecalled?.RecallStatus || '') === 'Recalled') break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  assert.equal(
+    String(pjRecalled?.RecallStatus || ''),
+    'Recalled',
+    'Passengerjobs RecallStatus must match rideStatus (field agreement)',
+  );
+  assert.ok(
+    pjRecalled?.recallNotification && typeof pjRecalled.recallNotification === 'object',
+    'recallNotification nested payload present',
+  );
+
+  // Same driver re-accepts from the offer pool (corruption path from #8692609048).
+  await h.assignAccept(jobId, driverId);
+
+  let rsCleared = null;
+  for (let i = 0; i < 30; i++) {
+    rsCleared = await h.firebasePeek(`rideStatus/${h.companyId}/${jobId}`);
+    const st = String(rsCleared?.Status || rsCleared?.BookingStatus || rsCleared?.status || '');
+    const recallGone =
+      rsCleared?.RecallStatus == null ||
+      rsCleared?.RecallStatus === '' ||
+      String(rsCleared?.RecallStatus) === 'null';
+    if (/assigned/i.test(st) && recallGone) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  assert.match(
+    String(rsCleared?.Status || rsCleared?.BookingStatus || ''),
+    /assigned/i,
+    'rideStatus Status Assigned after re-accept',
+  );
+  assert.ok(
+    rsCleared?.RecallStatus == null || String(rsCleared?.RecallStatus || '') === '',
+    `RecallStatus must clear on re-accept (got ${JSON.stringify(rsCleared?.RecallStatus)})`,
+  );
+  assert.ok(
+    rsCleared?.recalledAt == null || String(rsCleared?.recalledAt || '') === '',
+    'recalledAt cleared on re-accept',
+  );
+
+  let pjCleared = null;
+  for (let i = 0; i < 20; i++) {
+    pjCleared = await h.firebasePeek(`Passengerjobs/${paxUid}/${jobId}`);
+    const recallGone =
+      pjCleared?.RecallStatus == null ||
+      pjCleared?.RecallStatus === '' ||
+      String(pjCleared?.RecallStatus) === 'null';
+    if (recallGone) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  assert.ok(
+    pjCleared?.RecallStatus == null || String(pjCleared?.RecallStatus || '') === '',
+    `Passengerjobs RecallStatus cleared (got ${JSON.stringify(pjCleared?.RecallStatus)})`,
+  );
+  assert.ok(
+    pjCleared?.recallNotification == null,
+    'Passengerjobs recallNotification cleared on re-accept',
+  );
+
+  // Re-Arrive must succeed — UI recovery path (second Arrived after wrong-pax).
+  const reArrived = await h.stageJob(jobId, driverId, 'Arrived');
+  assert.equal(reArrived.body.ok, true, JSON.stringify(reArrived.body));
+
+  const afterArrived = await h.poll(
+    jobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Arrived',
+    { timeoutMs: 25000 },
+  );
+  assert.equal(String(afterArrived.jobStore.lifecycle.BookingStatus), 'Arrived');
+
+  const rsFinal = await h.firebasePeek(`rideStatus/${h.companyId}/${jobId}`);
+  assert.ok(
+    rsFinal?.RecallStatus == null || String(rsFinal?.RecallStatus || '') === '',
+    'RecallStatus still clear after re-Arrived',
+  );
 
   await prepareCleanDispatch(h);
 });

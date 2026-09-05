@@ -375,6 +375,7 @@ export async function createHarness(opts = {}) {
           reason: opts.reason,
           noShow: opts.noShow === true,
           forceTerminal: opts.forceTerminal === true,
+          wrongPassenger: opts.wrongPassenger === true,
         },
         h.adminHeaders,
       );

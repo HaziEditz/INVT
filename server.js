@@ -3498,9 +3498,11 @@ async function cancelBooking(opts) {
       const _wpNotify =
         opts.wrongPassenger === true || /wrong\s*passenger|uninvited/i.test(reason);
       // Always notify on pool restore so the passenger sees the booking is still live.
+      // Pass job so passengerUid survives even if allbookings sparse after restore.
       void _notifyPassengerRecall(_cid, bookingId, {
         reason,
         wrongPassenger: _wpNotify,
+        booking: job,
       });
     }
 
@@ -3524,8 +3526,9 @@ async function cancelBooking(opts) {
 
 /**
  * Notify passenger when a booked job is returned to the pool (wrong-passenger / recall).
- * Writes rideStatus RecallStatus + Passengerjobs recallNotification, then Expo push
- * via _sendPassengerExpoPush (booking token with users/{uid} fallback).
+ * Writes the SAME RecallStatus (+ message/recalledAt) on rideStatus AND Passengerjobs
+ * so passenger listeners agree; also nests recallNotification for older clients.
+ * Then Expo push via _sendPassengerExpoPush (booking token with users/{uid} fallback).
  */
 async function _notifyPassengerRecall(cid, bookingId, opts) {
   opts = opts || {};
@@ -3533,24 +3536,33 @@ async function _notifyPassengerRecall(cid, bookingId, opts) {
   const reason = String(opts.reason || '');
   const isWrongPax = opts.wrongPassenger === true || /wrong\s*passenger|uninvited/i.test(reason);
   const recallMsg = isWrongPax
-    ? "The driver couldn't complete your pickup. We're finding you another driver — your booking is still active."
+    ? "Your car was taken by someone else. We're finding you another driver — your booking is still active."
     : "Your driver had to return your booking to queue. A new driver will be allocated shortly.";
   const nowIso = new Date().toISOString();
+  const recallReason = isWrongPax ? 'wrong_passenger' : 'recalled';
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return { ok: false, reason: 'no_token' };
 
-    let booking = null;
+    let booking = opts.booking && typeof opts.booking === 'object' ? opts.booking : null;
+    let fbBooking = null;
     try {
-      booking = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+      fbBooking = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
     } catch (_e) { /* best-effort */ }
-    if (!booking || typeof booking !== 'object') {
+    if (!fbBooking || typeof fbBooking !== 'object') {
       try {
-        booking = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok);
+        fbBooking = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok);
       } catch (_e2) { /* best-effort */ }
     }
+    // Prefer in-memory job for status fields, but merge Firebase so passengerUid
+    // survives when jobStore mutate allowlists omit it (common in regression).
+    if (booking && fbBooking && typeof fbBooking === 'object') {
+      booking = Object.assign({}, fbBooking, booking);
+    } else if (!booking) {
+      booking = fbBooking;
+    }
 
-    await firebaseDbPatch(`rideStatus/${cid}/${bookingId}`, {
+    const recallPatch = {
       RecallStatus: 'Recalled',
       recalledAt: nowIso,
       message: recallMsg,
@@ -3558,23 +3570,31 @@ async function _notifyPassengerRecall(cid, bookingId, opts) {
       BookingStatus: 'Pending',
       DriverId: '0',
       VehicleId: '0',
-    }, tok).catch((e) =>
+    };
+    await firebaseDbPatch(`rideStatus/${cid}/${bookingId}`, recallPatch, tok).catch((e) =>
       console.warn(`  [pax-recall-notify] rideStatus write failed #${bookingId}: ${e && e.message}`),
     );
 
-    const paxUid = booking
-      ? String(
-          booking.passengerUid || booking.PassengerUid || booking.passengerId ||
-          booking.PassengerId || booking.PassengerKey || booking.passengerKey || '',
-        ).trim()
-      : '';
-    if (paxUid && !paxUid.startsWith('web_') && paxUid !== 'guest') {
+    let paxUid = _passengerUidFromRecord(booking);
+    if (!paxUid && booking && typeof booking === 'object') {
+      paxUid = String(
+        booking.passengerUid || booking.PassengerUid || booking.passengerId ||
+        booking.PassengerId || booking.PassengerKey || booking.passengerKey || '',
+      ).trim();
+      if (paxUid.startsWith('web_') || paxUid === 'guest' || !paxUid) paxUid = '';
+      if (paxUid && !_looksLikeFirebasePassengerUid(paxUid)) paxUid = '';
+    }
+    if (!paxUid && fbBooking) {
+      paxUid = _passengerUidFromRecord(fbBooking);
+    }
+    if (paxUid) {
       await firebaseDbPatch(`Passengerjobs/${paxUid}/${bookingId}`, {
+        ...recallPatch,
         recallNotification: {
           message: recallMsg,
           bookingId: String(bookingId),
           timestamp: nowIso,
-          reason: isWrongPax ? 'wrong_passenger' : 'recalled',
+          reason: recallReason,
         },
       }, tok).catch((e) =>
         console.warn(`  [pax-recall-notify] Passengerjobs write failed: ${e && e.message}`),
@@ -3585,12 +3605,12 @@ async function _notifyPassengerRecall(cid, bookingId, opts) {
       cid,
       bookingId,
       booking,
-      title: 'Booking Update',
+      title: isWrongPax ? 'Finding another driver' : 'Booking Update',
       body: recallMsg,
       data: {
         bookingId: String(bookingId),
         type: 'recall',
-        reason: isWrongPax ? 'wrong_passenger' : 'recalled',
+        reason: recallReason,
         companyId: String(cid || ''),
       },
     });
@@ -3598,13 +3618,49 @@ async function _notifyPassengerRecall(cid, bookingId, opts) {
       ok: true,
       pushed: !!(push && push.pushed),
       rideStatus: true,
-      passengerjobs: !!(paxUid && !paxUid.startsWith('web_')),
+      passengerjobs: !!paxUid,
       push,
     };
   } catch (e) {
     console.warn(`  [pax-recall-notify] failed #${bookingId}: ${e && e.message}`);
     return { ok: false, reason: e && e.message };
   }
+}
+
+/**
+ * Clear sticky recall flags when a driver (re-)accepts so Recalled never coexists
+ * with Assigned on rideStatus / Passengerjobs (#8692609048).
+ */
+async function _clearPassengerRecallFlags(cid, bookingId, tok, bookingHint) {
+  if (!cid || !bookingId || !tok) return;
+  const clearPatch = {
+    RecallStatus: null,
+    recalledAt: null,
+    message: null,
+  };
+  await firebaseDbPatch(`rideStatus/${cid}/${bookingId}`, clearPatch, tok).catch((e) =>
+    console.warn(`  [pax-recall-clear] rideStatus clear failed #${bookingId}: ${e && e.message}`),
+  );
+  let paxUid = _passengerUidFromRecord(bookingHint);
+  if (!paxUid) {
+    try {
+      const ab = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+      paxUid = _passengerUidFromRecord(ab);
+      if (!paxUid && ab && typeof ab === 'object') {
+        paxUid = String(
+          ab.passengerUid || ab.PassengerUid || ab.passengerId || ab.PassengerId || '',
+        ).trim();
+        if (paxUid.startsWith('web_') || paxUid === 'guest') paxUid = '';
+      }
+    } catch (_e) { /* best-effort */ }
+  }
+  if (!paxUid) return;
+  await firebaseDbPatch(`Passengerjobs/${paxUid}/${bookingId}`, {
+    ...clearPatch,
+    recallNotification: null,
+  }, tok).catch((e) =>
+    console.warn(`  [pax-recall-clear] Passengerjobs clear failed: ${e && e.message}`),
+  );
 }
 
 /**
@@ -6001,6 +6057,8 @@ async function acceptBooking(opts) {
       // Passenger app listens to rideStatus/{cid}/{id} — accept fanout historically
       // skipped this path, so after pendingjobs DELETE the UI could stay on
       // "Finding your driver" if allbookings was sparse (#86926090112 / retest freeze).
+      // Also null out sticky RecallStatus/recalledAt/message from a prior wrong-passenger
+      // recall so Recalled never coexists with Assigned (#8692609048).
       if (_tok) {
         const _rsPatch = {
           Status: 'Assigned',
@@ -6012,6 +6070,9 @@ async function acceptBooking(opts) {
           vehicleId: _vid || job.VehicleNo || job.VehicleId || '',
           eventType: 'updated',
           updateSeq: job.updateSeq,
+          RecallStatus: null,
+          recalledAt: null,
+          message: null,
         };
         if (_acceptDriverName) {
           _rsPatch.DriverName = _acceptDriverName;
@@ -6019,6 +6080,7 @@ async function acceptBooking(opts) {
         }
         await firebaseDbPatch(`rideStatus/${_cid}/${bookingId}`, _rsPatch, _tok)
           .catch(e => console.warn(`  [${source}] rideStatus accept patch failed: ${e && e.message}`));
+        await _clearPassengerRecallFlags(_cid, bookingId, _tok, job);
       }
       await _mirrorDriverOnlineStatus(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, 'Assigned', source);
       await _mirrorDriverTripAddressesOnline(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, job, bookingId, source);
@@ -17523,7 +17585,9 @@ const server = http.createServer(async (req, res) => {
         // Payment / prepaid — needed to repro Card-only PaymentType pool_restore corruption
         'PaymentType', 'paymentType', 'PaymentMethod', 'paymentMethod',
         'paymentStatus', 'PaymentStatus', 'isPrePaid', 'isPrepaid', 'isFixedPrice',
-        'EstimatedFare', 'TarriffId', 'TariffId',
+        'EstimatedFare', 'TarriffId', 'TariffId', 'TarriffType', 'CustomeRate',
+        // Passenger app uid — wrong-passenger recall → Passengerjobs field agreement
+        'passengerUid', 'PassengerUid', 'passengerId', 'PassengerId', 'PassengerAppUid',
       ];
       for (const k of allowed) {
         if (patch[k] !== undefined) job[k] = patch[k];
