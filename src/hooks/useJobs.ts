@@ -537,7 +537,15 @@ function notifyOfferReturned(bookingId: number, refresh: DispatchRefreshPayload)
   });
 }
 
-const POOL_RESTORE_ACTIONS = new Set(['status', 'timeout', 'decline', 'recall', 'scheduled_release']);
+const POOL_RESTORE_ACTIONS = new Set([
+  'status',
+  'timeout',
+  'decline',
+  'recall',
+  'scheduled_release',
+  'network_unreachable',
+  'heal_network_reason',
+]);
 
 function refreshTrustsPoolRestore(
   refresh: DispatchRefreshPayload,
@@ -658,7 +666,16 @@ function applyRefreshStatusHint(
   }
   const driverId = resolveRefreshDriverId(refresh, targetStatus, job, prior);
   const updateSeq = refresh.updateSeq ?? job?.updateSeq ?? prior?.updateSeq;
-  const patch = { status: targetStatus, driverId, ...(updateSeq != null ? { updateSeq } : {}) } as Job;
+  const patch = {
+    status: targetStatus,
+    driverId,
+    ...(updateSeq != null ? { updateSeq } : {}),
+    // Apply returnReason from refresh so Declined / Network labels track the signal,
+    // not a lagging allbookings field during the #9053 transient window.
+    ...(refresh.returnReason !== undefined
+      ? { returnReason: String(refresh.returnReason || '') || undefined }
+      : {}),
+  } as Job;
 
   // Queued + real driver: REPLACE (no mergeJobUpdate) so stale Pending cannot win.
   if (targetStatus === 'Queued' && !isUnassignedDriverId(driverId)) {

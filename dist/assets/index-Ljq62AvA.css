@@ -623,6 +623,9 @@ video {
 .z-\[100\] {
   z-index: 100;
 }
+.z-\[1100\] {
+  z-index: 1100;
+}
 .z-\[1\] {
   z-index: 1;
 }
@@ -817,9 +820,6 @@ video {
 }
 .max-h-\[92vh\] {
   max-height: 92vh;
-}
-.max-h-\[calc\(92vh-7\.5rem\)\] {
-  max-height: calc(92vh - 7.5rem);
 }
 .max-h-\[min\(420px\2c 70vh\)\] {
   max-height: min(420px, 70vh);
@@ -1227,6 +1227,9 @@ video {
 }
 .whitespace-pre-wrap {
   white-space: pre-wrap;
+}
+.break-words {
+  overflow-wrap: break-word;
 }
 .rounded {
   border-radius: 0.25rem;

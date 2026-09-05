@@ -4856,6 +4856,7 @@ async function assignBooking(opts) {
       `  [${source}] assign allowing sole-Available soft-stale driver ${_targetDrv} for job #${bookingId}`,
     );
     _clearStickyNetworkReturnReason(job);
+    job._softStaleSoleOffer = true;
   }
 
   // Option 1: Busy/Active (incl. hail) never get exclusive ticking Offered.
@@ -5009,6 +5010,7 @@ async function assignBooking(opts) {
     delete job.AssignedAt;
   } else {
     job.AssignedAt = job.lastUpdatedAt;
+    delete job._softStaleSoleOffer;
   }
 
   const _isManualOffer = (by === 'dispatcher' && opts.manualOffer !== false) || opts.manualOffer === true;
@@ -7059,6 +7061,7 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   job.returnReason = opts.reason || 'Offer expired (stale offered job)';
   job.ReturnReason = job.returnReason;
   job.releasedAt = Date.now();
+  delete job._softStaleSoleOffer;
   if (opts.networkBounce) {
     job.manualOffer = false;
     job._skipReleaseCooldownOnce = true;
@@ -7079,6 +7082,26 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   });
 
   if (cid && bookingId) {
+    // Audit missing seq on #9053 network bounce — always write bookingEvents.
+    _writeBookingEvent(cid, bookingId, 'StatusChanged', {
+      from: prevSt,
+      to: 'Pending',
+      action: opts.networkBounce ? 'network_unreachable' : 'timeout',
+      driverId: String(prevDriver || ''),
+      declinedDriverId: String(prevDriver || ''),
+      returnReason: job.returnReason,
+      networkBounce: !!opts.networkBounce,
+    }, 'system', job.updateSeq).catch(() => {});
+    // Signal UA immediately — do not wait on Firebase fanout (same class as #9053 decline lag).
+    await _dispatchRefreshForJob(job, {
+      cid,
+      previousStatus: prevSt,
+      status: 'Pending',
+      action: opts.networkBounce ? 'network_unreachable' : 'timeout',
+      driverId: '0',
+      declinedDriverId: String(prevDriver || ''),
+      returnReason: job.returnReason,
+    });
     await _writePendingJobFirebase(cid, bookingId, job, 'Pending');
     await _fanVersionToFirebaseAwait(cid, bookingId, {
       BookingStatus: 'Pending',
@@ -7371,7 +7394,13 @@ function _isDriverMidOfferNetworkStale(job, now) {
   const at = now || Date.now();
   const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
   if (!lastSeen) return false;
-  return (at - lastSeen) > MID_OFFER_NETWORK_STALE_MS;
+  const age = at - lastSeen;
+  // Soft-stale sole offers (#9053): do not mid-offer bounce with sticky Network issue
+  // until presence is hard-gone — pre-offer already allowed this driver.
+  if (job._softStaleSoleOffer) {
+    return age > NETWORK_OFFER_HARD_STALE_MS;
+  }
+  return age > MID_OFFER_NETWORK_STALE_MS;
 }
 
 /** Diagnostic snapshot: ZONE lastSeen vs Firebase lastSeen for an Offered job. */
@@ -8781,11 +8810,24 @@ async function driverDeclineJob(opts) {
       returnReason: job.returnReason,
       previousOfferStatus: _prevSt,
     }, 'driver', job.updateSeq).catch(() => {});
+    // CRITICAL (#9053): signal dispatchConsole refresh BEFORE awaiting Firebase pool fanout.
+    // Awaiting allbookings/pendingjobs first left the console stuck on Offered for hundreds of ms
+    // while jobStore was already Pending — UI lag, not a client cache bug.
+    await _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _prevSt,
+      status: job.BookingStatus,
+      action: timedOut ? 'timeout' : 'decline',
+      driverId: '0',
+      declinedDriverId: driverId,
+      returnReason: job.returnReason,
+    });
     await _releaseOfferToPoolFirebase(_cid, bookingId, job, _restoredPool, _offerCtx);
     getFirebaseServerToken().then(async _tok => {
       if (!_tok) return;
       await fbRequest(`${FB_DB_URL}/notification/${driverId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
     });
+    // Confirm refresh after fanout so listeners that re-read FB see Pending (new `at`).
     await _dispatchRefreshForJob(job, {
       cid: _cid,
       previousStatus: _prevSt,
@@ -8931,6 +8973,7 @@ function _applyPoolStatusFields(job, poolStatus) {
   job.offeredAt = null;
   job.queuedAt = null;
   job.releasedAt = Date.now();
+  delete job._softStaleSoleOffer;
   if (restored === 'No One') {
     job.manualOffer = true;
     job.originalStatus = 'manual';
@@ -30024,6 +30067,8 @@ async function _serverAutoDispatchTick() {
       fresh.returnReason = '';
       fresh.ReturnReason = '';
       fresh.originalStatus = 'pending';
+      if (_softSole) fresh._softStaleSoleOffer = true;
+      else delete fresh._softStaleSoleOffer;
       delete fresh._networkFailedDriverId;
       delete fresh._networkFailedDriverUntil;
       // Durable Offered + bookingEvents (was missing on auto-dispatch → limbo / no audit).
