@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
 import { getHarness, prepareCleanDispatch } from '../lib/harness.mjs';
 
+const HARD_STALE_MS = 16 * 60 * 1000; // past NETWORK_OFFER_HARD_STALE_MS (15m)
+
 test.before(async () => {
   await getHarness({ fresh: true });
 });
@@ -10,17 +12,54 @@ test.before(async () => {
 test('P3 network offer: assign to pre-stale driver bounces with Network issue reason', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
+  await prepareCleanDispatch(h);
+
   const driverId = String(h.driverIds[0]);
+  const other = String(h.driverIds[1]);
+
+  // Keep a second Available fresh so soft-stale sole-retry does not apply.
+  await h.ensureDriverReady(other);
+  await h.configureDriver(other, {
+    vehiclestatus: 'Available',
+    lastSeen: Date.now(),
+    lat: -46.412,
+    lng: 168.353,
+    zoneid: '1',
+    zonename: 'Central',
+  });
+  await h.driverStatusChanged(other, 'Available', { lat: -46.412, lng: 168.353 }).catch(() => undefined);
 
   await h.ensureDriverReady(driverId);
   // lastSeen 55s ago → past NETWORK_OFFER_STALE_MS (45s). Must set AFTER ensureDriverReady.
   await h.configureDriver(driverId, {
     vehiclestatus: 'Available',
     lastSeen: Date.now() - 55_000,
+    lat: -46.412,
+    lng: 168.353,
+    zoneid: '1',
+    zonename: 'Central',
   });
 
   const jobId = await h.createAsapJob('network-offer-stale');
-  const assignRes = await h.assignJob(jobId, driverId, driverId);
+  let assignRes = await h.assignJob(jobId, driverId, driverId);
+  // Full-suite isolation can drop ZONE_DRIVERS mid-run — re-seed once then retry.
+  if (assignRes.body?.error_code === 'driver_not_in_zone') {
+    await h.ensureDriverReady(other);
+    await h.configureDriver(other, {
+      vehiclestatus: 'Available',
+      lastSeen: Date.now(),
+      lat: -46.412,
+      lng: 168.353,
+    });
+    await h.ensureDriverReady(driverId);
+    await h.configureDriver(driverId, {
+      vehiclestatus: 'Available',
+      lastSeen: Date.now() - 55_000,
+      lat: -46.412,
+      lng: 168.353,
+    });
+    assignRes = await h.assignJob(jobId, driverId, driverId);
+  }
   assert.equal(assignRes.body?.ok, false, `expected assign failure, got ${JSON.stringify(assignRes.body)}`);
   assert.equal(assignRes.body?.error_code, 'driver_unreachable');
   assert.match(String(assignRes.body?.error || ''), /Network issue/i);
@@ -74,7 +113,7 @@ test('P3 network offer: fresh lastSeen still allows assign', async () => {
   }).catch(() => undefined);
 });
 
-test('P3 network offer: all Available network-stale still busy-pool broadcasts', async () => {
+test('P3 network offer: all Available hard-stale still busy-pool broadcasts', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
   await prepareCleanDispatch(h);
@@ -88,15 +127,15 @@ test('P3 network offer: all Available network-stale still busy-pool broadcasts',
     await h.driverStatusChanged(did, 'Away').catch(() => undefined);
   }
 
-  // StatusChanged first (clears away-lock / queue), then freeze lastSeen stale so
-  // Available is collected but filtered as network-unreachable.
+  // StatusChanged first (clears away-lock / queue), then freeze lastSeen HARD-stale so
+  // sole soft-stale retry does not apply — Available collected but filtered unreachable.
   await h.driverStatusChanged(staleAvailable, 'Available', {
     lat: -46.412,
     lng: 168.353,
   });
   await h.configureDriver(staleAvailable, {
     vehiclestatus: 'Available',
-    lastSeen: Date.now() - 55_000,
+    lastSeen: Date.now() - HARD_STALE_MS,
     lat: -46.412,
     lng: 168.353,
   });
@@ -116,10 +155,10 @@ test('P3 network offer: all Available network-stale still busy-pool broadcasts',
   let tick = null;
   let companyTick = null;
   for (let attempt = 0; attempt < 6; attempt++) {
-    // Re-freeze stale lastSeen each attempt — DriverStatusChanged / other ticks can refresh it.
+    // Re-freeze hard-stale lastSeen each attempt — DriverStatusChanged / other ticks can refresh it.
     await h.configureDriver(staleAvailable, {
       vehiclestatus: 'Available',
-      lastSeen: Date.now() - 55_000,
+      lastSeen: Date.now() - HARD_STALE_MS,
       lat: -46.412,
       lng: 168.353,
     });
@@ -150,7 +189,7 @@ test('P3 network offer: all Available network-stale still busy-pool broadcasts',
   assert.equal(
     companyTick.action,
     'busy_pool_broadcast',
-    `expected busy_pool_broadcast when Available are network-stale; got ${JSON.stringify(companyTick)}`,
+    `expected busy_pool_broadcast when Available are hard network-stale; got ${JSON.stringify(companyTick)}`,
   );
   assert.match(
     String(companyTick.skipReason || ''),

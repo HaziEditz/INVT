@@ -14,3 +14,10 @@ test('NETWORK_OFFER_STALE_MS is 45s (above idle heartbeat, below extreme)', () =
   assert.match(src, /const NETWORK_OFFER_STALE_MS\s*=\s*45\s*\*\s*1000/);
   assert.doesNotMatch(src, /const NETWORK_OFFER_STALE_MS\s*=\s*25\s*\*\s*1000/);
 });
+
+test('NETWORK_OFFER_HARD_STALE_MS aligns with STALE_PRESENCE_MS for sole soft-stale retry', () => {
+  assert.match(src, /const NETWORK_OFFER_HARD_STALE_MS\s*=\s*STALE_PRESENCE_MS/);
+  assert.match(src, /function _isSoleAvailableSoftStaleRetry\s*\(/);
+  assert.match(src, /function _healStickyNetworkReturnReasonOnJob\s*\(/);
+  assert.match(src, /action:\s*timedOut\s*\?\s*'timeout'\s*:\s*'decline'/);
+});

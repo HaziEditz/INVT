@@ -4420,10 +4420,16 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     String(d.VehicleId) === String(vid)
   ));
   if (_isDriverNetworkOfferStale(_zdOffer)) {
-    console.warn(
-      `  [${sourceTag}] _writeManualDriverOffer SKIP job #${job.Id} → driver ${did} — ${NETWORK_OFFER_RETURN_REASON}`,
+    const _soleSoft = _isSoleAvailableSoftStaleRetry(cid, did);
+    if (!_soleSoft) {
+      console.warn(
+        `  [${sourceTag}] _writeManualDriverOffer SKIP job #${job.Id} → driver ${did} — ${NETWORK_OFFER_RETURN_REASON}`,
+      );
+      return;
+    }
+    console.log(
+      `  [${sourceTag}] _writeManualDriverOffer allowing sole-Available soft-stale → driver ${did} job #${job.Id}`,
     );
-    return;
   }
 
   // Stamp jobStore before any async Firebase I/O so _healStuckOfferedJobs cannot
@@ -4810,38 +4816,46 @@ async function assignBooking(opts) {
   }
 
   // P3: pre-known-stale presence — refuse offer fanout (no normal offer wait).
+  // Exception: sole Available soft-stale retry (not hard-gone) — still offer.
   if (_isDriverNetworkOfferStale(_zdAssign)) {
-    const _ageSec = Math.round((Date.now() - _normalizeLastSeenMs(_zdAssign.lastSeen)) / 1000);
-    console.warn(`  [${source}] assign blocked — driver ${_targetDrv} network-stale (lastSeen ${_ageSec}s ago)`);
-    _liveTrace('assign blocked network-stale', {
-      sourceTag: source,
-      jobId: job && job.Id,
-      driverId: _targetDrv,
-      companyId: _cidEarly || (job && job.companyId),
-      zoneAgeMs: _ageSec * 1000,
-      reason: NETWORK_OFFER_RETURN_REASON,
-    });
-    if (_curStatus === 'Pending' || _curStatus === 'No One' || _curStatus === 'Scheduled' || _curStatus === 'Unreached') {
-      job.returnReason = NETWORK_OFFER_RETURN_REASON;
-      job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
-      saveJobStore();
-      if (_cidEarly) {
-        await _dispatchRefreshForJob(job, {
-          cid: _cidEarly,
-          previousStatus: _curStatus,
-          status: job.BookingStatus,
-          action: 'network_unreachable',
-          driverId: '0',
-          returnReason: NETWORK_OFFER_RETURN_REASON,
-        }).catch(() => {});
+    const _soleSoft = _isSoleAvailableSoftStaleRetry(_cidEarly, _targetDrv);
+    if (!_soleSoft) {
+      const _ageSec = Math.round((Date.now() - _normalizeLastSeenMs(_zdAssign.lastSeen)) / 1000);
+      console.warn(`  [${source}] assign blocked — driver ${_targetDrv} network-stale (lastSeen ${_ageSec}s ago)`);
+      _liveTrace('assign blocked network-stale', {
+        sourceTag: source,
+        jobId: job && job.Id,
+        driverId: _targetDrv,
+        companyId: _cidEarly || (job && job.companyId),
+        zoneAgeMs: _ageSec * 1000,
+        reason: NETWORK_OFFER_RETURN_REASON,
+      });
+      if (_curStatus === 'Pending' || _curStatus === 'No One' || _curStatus === 'Scheduled' || _curStatus === 'Unreached') {
+        job.returnReason = NETWORK_OFFER_RETURN_REASON;
+        job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
+        saveJobStore();
+        if (_cidEarly) {
+          await _dispatchRefreshForJob(job, {
+            cid: _cidEarly,
+            previousStatus: _curStatus,
+            status: job.BookingStatus,
+            action: 'network_unreachable',
+            driverId: '0',
+            returnReason: NETWORK_OFFER_RETURN_REASON,
+          }).catch(() => {});
+        }
       }
+      return {
+        ok: false,
+        error_code: 'driver_unreachable',
+        error: NETWORK_OFFER_RETURN_REASON,
+        booking: _publicBooking(job),
+      };
     }
-    return {
-      ok: false,
-      error_code: 'driver_unreachable',
-      error: NETWORK_OFFER_RETURN_REASON,
-      booking: _publicBooking(job),
-    };
+    console.log(
+      `  [${source}] assign allowing sole-Available soft-stale driver ${_targetDrv} for job #${bookingId}`,
+    );
+    _clearStickyNetworkReturnReason(job);
   }
 
   // Option 1: Busy/Active (incl. hail) never get exclusive ticking Offered.
@@ -8728,6 +8742,10 @@ async function driverDeclineJob(opts) {
   _applyPoolStatusFields(job, _restoredPool);
   _stampLastOfferDriver(job, driverId);
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
+  job.ReturnReason = job.returnReason;
+  // Durable next offer: skip the short release cooldown so auto-dispatch / assign
+  // can commit a real Offered outcome immediately (any booking source).
+  job._skipReleaseCooldownOnce = true;
   _bumpJobUpdateSeq(job, 'driver');
   saveJobStore();
   _logJobPoolState(job, timedOut ? 'after-timeout' : 'after-decline');
@@ -8753,6 +8771,16 @@ async function driverDeclineJob(opts) {
   }
 
   if (_cid) {
+    // Audit: every decline/timeout must leave a real bookingEvents row (was missing → 9041 blind).
+    _writeBookingEvent(_cid, bookingId, 'StatusChanged', {
+      from: _prevSt,
+      to: job.BookingStatus,
+      action: timedOut ? 'timeout' : 'decline',
+      driverId,
+      declinedDriverId: driverId,
+      returnReason: job.returnReason,
+      previousOfferStatus: _prevSt,
+    }, 'driver', job.updateSeq).catch(() => {});
     await _releaseOfferToPoolFirebase(_cid, bookingId, job, _restoredPool, _offerCtx);
     getFirebaseServerToken().then(async _tok => {
       if (!_tok) return;
@@ -14461,6 +14489,8 @@ const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeat
  *  phone with a live FGS GPS ping is not falsely treated as unreachable. */
 const NETWORK_OFFER_STALE_MS = 45 * 1000;
 const NETWORK_OFFER_RETURN_REASON = 'Network issue — driver unreachable';
+/** Hard ceiling aligned with ghost-presence: soft-stale is (STALE_MS, HARD], hard = truly gone. */
+const NETWORK_OFFER_HARD_STALE_MS = STALE_PRESENCE_MS;
 
 function _normalizeLastSeenMs(raw) {
   const n = Number(raw || 0);
@@ -14482,13 +14512,104 @@ function _freshestLastSeenMs(...raws) {
   return best;
 }
 
+function _driverNetworkOfferAgeMs(zd, now) {
+  if (!zd) return 0;
+  const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
+  if (!lastSeen) return 0;
+  return (now || Date.now()) - lastSeen;
+}
+
 /** True when zone-driver lastSeen is known and older than NETWORK_OFFER_STALE_MS. Missing lastSeen = not stale. */
 function _isDriverNetworkOfferStale(zd, now) {
-  if (!zd) return false;
-  const at = now || Date.now();
-  const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
-  if (!lastSeen) return false;
-  return (at - lastSeen) > NETWORK_OFFER_STALE_MS;
+  const age = _driverNetworkOfferAgeMs(zd, now);
+  return age > NETWORK_OFFER_STALE_MS;
+}
+
+/** Soft-stale: past 45s grace but not yet ghost-presence hard stale (still may be reachable). */
+function _isDriverNetworkOfferSoftStale(zd, now) {
+  const age = _driverNetworkOfferAgeMs(zd, now);
+  return age > NETWORK_OFFER_STALE_MS && age <= NETWORK_OFFER_HARD_STALE_MS;
+}
+
+/** Hard-stale: presence older than STALE_PRESENCE_MS — treat as truly gone. */
+function _isDriverNetworkOfferHardStale(zd, now) {
+  return _driverNetworkOfferAgeMs(zd, now) > NETWORK_OFFER_HARD_STALE_MS;
+}
+
+/**
+ * Sole Available soft-stale retry (#8692609041): when the only Eligible Available
+ * driver's lastSeen looks softly stale (not hard-gone), still allow an exclusive offer
+ * from any booking source (Dispatch / Website / Passenger App / auto-dispatch).
+ */
+function _isSoleAvailableSoftStaleRetry(cid, driverId, now) {
+  const companyId = String(cid || '').trim();
+  const did = String(driverId || '').trim();
+  if (!companyId || !did) return false;
+  if (typeof _collectAutoDispatchEligibleDrivers !== 'function') return false;
+  const avail = _collectAutoDispatchEligibleDrivers(companyId);
+  if (!avail || avail.length !== 1) return false;
+  const only = avail[0];
+  const onlyDid = String(only.driverid || '').trim();
+  const onlyVid = String(only.VehicleId || only.vehiclenumber || '').trim();
+  if (!_driverIdsMatch(onlyDid, did) && onlyVid !== did && onlyDid !== did) return false;
+  if (_isDriverNetworkOfferHardStale(only, now)) return false;
+  return _isDriverNetworkOfferStale(only, now);
+}
+
+/** Skip for exclusive offer unless soft-stale sole-Available retry applies. */
+function _networkOfferShouldSkipDriver(zd, cid, now) {
+  if (!_isDriverNetworkOfferStale(zd, now)) return false;
+  if (_isDriverNetworkOfferHardStale(zd, now)) return true;
+  const did = zd && (zd.driverid || zd.VehicleId || zd.vehiclenumber);
+  if (_isSoleAvailableSoftStaleRetry(cid, did, now)) return false;
+  return true;
+}
+
+function _clearStickyNetworkReturnReason(job) {
+  if (!job) return false;
+  const rr = String(job.returnReason || '');
+  const RR = String(job.ReturnReason || '');
+  if (rr !== NETWORK_OFFER_RETURN_REASON && RR !== NETWORK_OFFER_RETURN_REASON) return false;
+  job.returnReason = '';
+  job.ReturnReason = '';
+  return true;
+}
+
+async function _healStickyNetworkReturnReasonOnJob(job, cid, sourceTag) {
+  if (!job || !job.Id || !cid) return false;
+  const now = Date.now();
+  const avail = (typeof _collectAutoDispatchEligibleDriversForJob === 'function')
+    ? _collectAutoDispatchEligibleDriversForJob(cid, job)
+    : ((typeof _collectAutoDispatchEligibleDrivers === 'function')
+      ? _collectAutoDispatchEligibleDrivers(cid)
+      : []);
+  const reachable = (avail || []).filter((d) => !_networkOfferShouldSkipDriver(d, cid, now));
+  if (!reachable.length) return false;
+  if (!_clearStickyNetworkReturnReason(job)) return false;
+  saveJobStore();
+  try {
+    _fanVersionToFirebase(cid, job.Id, {
+      returnReason: '',
+      ReturnReason: '',
+      updateSeq: parseInt(job.updateSeq) || 0,
+    }, false);
+  } catch (_) { /* non-fatal */ }
+  const st = String(job.BookingStatus || '');
+  if (st === 'Pending' || st === 'No One') {
+    try {
+      await _writePendingJobFirebase(cid, job.Id, job, st === 'No One' ? 'No One' : 'Pending');
+    } catch (_) { /* non-fatal */ }
+  }
+  await _dispatchRefreshForJob(job, {
+    cid,
+    previousStatus: st,
+    status: st,
+    action: 'heal_network_reason',
+    driverId: '0',
+    returnReason: '',
+  }).catch(() => {});
+  console.log(`  [${sourceTag || 'heal-network'}] cleared sticky network returnReason on job #${job.Id}`);
+  return true;
 }
 
 /** DataProcessor trip-status traffic is a liveness signal for ZONE_DRIVERS.
@@ -27814,7 +27935,8 @@ async function _refreshBusyPoolBroadcastForJob(job) {
   const nowReachable = Date.now();
   // Network-stale Available drivers are not reachable for exclusive offers — treat
   // like zero Available so busy Offer tab still gets pendingjobs fanout.
-  const reachableAvailable = available.filter((d) => !_isDriverNetworkOfferStale(d, nowReachable));
+  // Soft-stale sole Available still counts as reachable (9041 retry).
+  const reachableAvailable = available.filter((d) => !_networkOfferShouldSkipDriver(d, cid, nowReachable));
   if (reachableAvailable.length) return;
   if (busyEligible.length) {
     await _writePendingJobFirebase(cid, job.Id, job, st === 'No One' ? 'No One' : 'Pending');
@@ -29802,9 +29924,10 @@ async function _serverAutoDispatchTick() {
         }
         continue;
       }
-      // P3: skip pre-known-stale drivers (lastSeen > NETWORK_OFFER_STALE_MS) — do not place a normal offer wait.
+      // P3: skip pre-known-stale drivers — do not place a normal offer wait.
+      // Soft-stale sole Available is kept (9041): still commit a real exclusive Offered.
       const driversReachable = drivers.filter((d) => {
-        if (_isDriverNetworkOfferStale(d, now)) return false;
+        if (_networkOfferShouldSkipDriver(d, cid, now)) return false;
         if (_isDriverBlockedFromNetworkRedispatch(job, d.driverid, now)) return false;
         return true;
       });
@@ -29851,6 +29974,8 @@ async function _serverAutoDispatchTick() {
         }
         continue;
       }
+      // Heal sticky "Network issue" once a reachable (incl. soft-stale sole) driver exists.
+      await _healStickyNetworkReturnReasonOnJob(job, cid, 'server-auto-dispatch');
       let best = driversReachable[0];
       if (pick) {
         let bestDist = Infinity;
@@ -29890,6 +30015,7 @@ async function _serverAutoDispatchTick() {
       const _bestVid = (_bestIdentity.ok && _bestIdentity.vehicleId)
         ? _bestIdentity.vehicleId
         : String(best.VehicleId || best.vehiclenumber || '').trim();
+      const _softSole = _isSoleAvailableSoftStaleRetry(cid, best.driverid, now);
       fresh.BookingStatus = 'Offered';
       fresh.DriverId = _bestDrv;
       fresh.VehicleId = _bestVid || _bestDrv;
@@ -29898,6 +30024,15 @@ async function _serverAutoDispatchTick() {
       fresh.returnReason = '';
       fresh.ReturnReason = '';
       fresh.originalStatus = 'pending';
+      delete fresh._networkFailedDriverId;
+      delete fresh._networkFailedDriverUntil;
+      // Durable Offered + bookingEvents (was missing on auto-dispatch → limbo / no audit).
+      _bumpSeqAndEmitStatus(fresh, _autoPrev, 'system', 'server-auto-dispatch', {
+        action: 'offer',
+        driverId: _bestDrv,
+        vehicleId: _bestVid,
+        softStaleSoleRetry: !!_softSole,
+      });
       saveJobStore();
       await _writeDriverOfferNotification(cid, best, fresh);
       await _dispatchRefreshForJob(fresh, {
@@ -29906,12 +30041,17 @@ async function _serverAutoDispatchTick() {
         status: 'Offered',
         action: 'offer',
         driverId: best.driverid,
+        returnReason: '',
       });
       companyReport.action = 'offered';
       companyReport.targetJobId = fresh.Id;
       companyReport.targetDriverId = best.driverid;
+      if (_softSole) companyReport.softStaleSoleRetry = true;
       _stampZoneDriverLastSeen(best);
-      console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
+      console.log(
+        `[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid}` +
+        `${_softSole ? ', soft-stale-sole-retry' : ''})`,
+      );
       offeredThisTick = true;
       break;
     }
