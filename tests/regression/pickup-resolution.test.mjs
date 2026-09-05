@@ -16,7 +16,7 @@ test('pickupResolution helpers: pin + no-show wait charge', () => {
   assert.equal(needsPickupVerification({ BookingSource: 'passenger', PickupPin: '1234' }), true);
   assert.equal(needsPickupVerification({ BookingSource: 'Hail', source: 'hail' }), false);
   assert.equal(needsPickupVerification({ BookingSource: 'Dispatch Console' }), false);
-  // Prepaid Website / Card / paid — any source — needs verify (visible PIN)
+  // Prepaid Website / Card / paid — Website keeps verify (visible PIN)
   assert.equal(
     needsPickupVerification({ BookingSource: 'Website', paymentStatus: 'paid' }),
     true,
@@ -25,9 +25,21 @@ test('pickupResolution helpers: pin + no-show wait charge', () => {
     needsPickupVerification({ BookingSource: 'Website', PaymentType: 'Card' }),
     true,
   );
+  // Dispatch Console desk bookings are NEVER in the PIN group — any payment method.
   assert.equal(
     needsPickupVerification({ BookingSource: 'Dispatch Console', PaymentType: 'Account' }),
-    true,
+    false,
+  );
+  assert.equal(
+    needsPickupVerification({
+      BookingSource: 'Dispatch Console',
+      PaymentType: 'Card',
+      paymentStatus: 'paid',
+      isPrePaid: true,
+      PickupPin: '9999',
+    }),
+    false,
+    'desk booking with leftover PIN must still skip PIN group',
   );
   // Cash website still skips
   assert.equal(
@@ -391,6 +403,14 @@ test('No Show: I\'m coming + honest waited reason on closed job', async () => {
   const driverId = h.driverIds[0];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('noshow-wait-charge');
+  // I'm coming / no-show timer is PIN-group — Website / Passenger App only.
+  await h.mutateJobStore(jobId, {
+    BookingSource: 'PassengerApp',
+    CreatedBy: 'APP',
+    Source: 'PassengerApp',
+    PickupPin: '5656',
+    pickupPin: '5656',
+  });
   await h.assignAccept(jobId, driverId);
   assert.equal((await h.stageJob(jobId, driverId, 'Arrived')).body.ok, true);
 

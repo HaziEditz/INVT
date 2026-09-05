@@ -86,6 +86,7 @@ const { withClientTripIdCreateLock } = require('./lib/clientTripIdCreateLock.cjs
 const {
   generatePickupPin,
   isPassengerAppBooking,
+  isDispatchCreatedBooking,
   jobPickupPin,
   ensurePickupPin,
   resolveFanoutBookingSource,
@@ -1307,11 +1308,20 @@ function _resolveApiCancelRouting(body, job) {
   }
 
   // Uninvited / wrong passenger: return booked job to pool (incl. Arrived).
+  // Desk / Dispatch Console bookings are outside the PIN group — passenger never
+  // sees a PIN, so wrong-passenger / walk-up hail does not apply.
   const wrongPassenger =
     body.wrongPassenger === true ||
     body.recallWrongPassenger === true ||
     /wrong\s*passenger|uninvited/i.test(reason);
   if (wrongPassenger && _DRIVER_RECALL_STATUSES.has(stage) && stage !== 'Active') {
+    if (isDispatchCreatedBooking(job)) {
+      return {
+        ok: false,
+        error_code: 'forbidden',
+        error: 'Wrong-passenger recall is only for Website / Passenger App bookings',
+      };
+    }
     return {
       ok: true,
       recallToPending: true,
@@ -8256,7 +8266,8 @@ async function driverStageJob(opts) {
     };
   }
 
-  // PassengerApp pickup verification gate — PIN + name confirm before On Board.
+  // PassengerApp / Website pickup verification gate — PIN + name confirm before On Board.
+  // Dispatch Console desk bookings are excluded (needsPickupVerification = false).
   if (nextStatus === 'Active' && needsPickupVerification(job) && !isPickupVerified(job)) {
     return {
       ok: false,
@@ -8269,12 +8280,23 @@ async function driverStageJob(opts) {
 
   if (nextStatus === 'Arrived' && !job.ArrivedAt) {
     job.ArrivedAt = new Date().toISOString();
-    job.noShowDeadlineAt = new Date(noShowDeadlineMs(job, Date.now())).toISOString();
+    // No-show timer is part of the PIN group — Website / Passenger App only.
+    if (needsPickupVerification(job)) {
+      job.noShowDeadlineAt = new Date(noShowDeadlineMs(job, Date.now())).toISOString();
+    } else {
+      delete job.noShowDeadlineAt;
+    }
   }
-  // Prepaid (any source, incl. Website) must show a real PIN at Arrived.
-  // Legacy web ingest stripped pins; stamp here so driver UI never shows "PIN: —".
+  // Prepaid Website + PassengerApp must show a real PIN at Arrived.
+  // Dispatch desk bookings never stamp a PIN — strip any accidental leftover.
   if (nextStatus === 'Arrived') {
-    ensurePickupPin(job);
+    if (isDispatchCreatedBooking(job)) {
+      delete job.PickupPin;
+      delete job.pickupPin;
+      delete job.noShowDeadlineAt;
+    } else {
+      ensurePickupPin(job);
+    }
   }
   if (nextStatus === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
   if (nextStatus === 'Assigned') {
@@ -8338,6 +8360,13 @@ async function verifyPickupForOnBoard(opts) {
   const idx = jobStore.findIndex((j) => j && j.Id === bookingId);
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
+  if (isDispatchCreatedBooking(job) || !needsPickupVerification(job)) {
+    return {
+      ok: false,
+      error_code: 'forbidden',
+      error: 'Pickup PIN verify is only for Website / Passenger App bookings',
+    };
+  }
   const _cid = String(job.companyId || opts.companyId || '');
   const stage = String(job.BookingStatus || '');
   if (!['Arrived', 'Assigned', 'Picking'].includes(stage)) {
@@ -8405,6 +8434,13 @@ async function passengerImComing(opts) {
   }
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
+  if (isDispatchCreatedBooking(job) || !needsPickupVerification(job)) {
+    return {
+      ok: false,
+      error_code: 'forbidden',
+      error: "I'm coming / no-show timer is only for Website / Passenger App bookings",
+    };
+  }
   const _cid = String(job.companyId || opts.companyId || '');
   const _st = String(job.BookingStatus || '');
   const _hasArrivedAt = !!(job.ArrivedTime || job.arrivedAt || job.arrivedAtMs ||
@@ -20207,6 +20243,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // Walk-up hail forked from a booked job that was returned to the pool.
     const _cjRelated = parseInt(_cjData.relatedBookingId || _cjData.RelatedBookingId || 0) || 0;
     if (_cjRelated > 0 && _cjSource === 'hail') {
+      const _relIdxGate = jobStore.findIndex((j) => j && j.Id === _cjRelated);
+      const _relJobGate = _relIdxGate !== -1 ? jobStore[_relIdxGate] : null;
+      if (_relJobGate && isDispatchCreatedBooking(_relJobGate)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({
+          ok: false,
+          error_code: 'forbidden',
+          error: 'Walk-up hail after wrong-passenger is only for Website / Passenger App bookings',
+        }));
+        return;
+      }
       _cjJob.relatedBookingId = _cjRelated;
       _cjJob.RelatedBookingId = _cjRelated;
       const _relIdx = jobStore.findIndex((j) => j && j.Id === _cjRelated);
