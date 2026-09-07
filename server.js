@@ -87,6 +87,7 @@ const {
   generatePickupPin,
   isPassengerAppBooking,
   isDispatchCreatedBooking,
+  coerceCashNotPrepaid,
   jobPickupPin,
   ensurePickupPin,
   resolveFanoutBookingSource,
@@ -4569,6 +4570,7 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     updatedAt:      _FB_SERVER_TIMESTAMP,
     _ts:            _now,
   };
+  coerceCashNotPrepaid(notifPayload);
 
   const _pjPatch = {
     BookingId:       String(bookingId),
@@ -10194,6 +10196,7 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         const _prevUseful = _prev != null && !(typeof _prev === 'string' && !_prev.trim());
         if (_curEmpty && _prevUseful) payload[_pk] = _prev;
       }
+      coerceCashNotPrepaid(payload);
       // Desk / system tags must not overwrite a real passenger or website origin.
       const _prevSrc = resolveFanoutBookingSource(existing, { fallback: '' });
       const _curSrc = resolveFanoutBookingSource(payload, { fallback: '' });
@@ -29422,6 +29425,7 @@ function _mergeFbIntoJob(job, fb) {
     job.paymentStatus = _ps;
     job.PaymentStatus = _ps;
   }
+  coerceCashNotPrepaid(job);
   const _accId = fb.Account_id || fb.AccountId || fb.jobAccountId || fb.accountNumber;
   const _accName = fb.Account_Name || fb.AccountName || fb.jobAccountName || fb.accountName;
   if (_accId) {

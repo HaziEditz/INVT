@@ -41,14 +41,25 @@ test('pickupResolution helpers: pin + no-show wait charge', () => {
     false,
     'desk booking with leftover PIN must still skip PIN group',
   );
-  // Cash website still skips
+  // Cash website still skips — leftover paymentStatus=paid must not enter PIN group
   assert.equal(
     needsPickupVerification({
       BookingSource: 'Website',
       PaymentType: 'Cash',
-      paymentStatus: '',
+      paymentStatus: 'paid',
     }),
     false,
+    'cash is collected at completion, never PIN-prepaid',
+  );
+  assert.equal(
+    needsPickupVerification({
+      BookingSource: 'Dispatch Console',
+      PaymentType: 'cash',
+      paymentStatus: 'paid',
+      isPrePaid: true,
+    }),
+    false,
+    'desk cash leftover paid must skip PIN group',
   );
 
   const charge = computeNoShowWaitCharge(
