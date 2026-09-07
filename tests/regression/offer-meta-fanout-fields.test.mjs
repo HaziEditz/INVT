@@ -34,3 +34,17 @@ test('_writeManualDriverOffer pendingjobs patch includes VehicleType + CreatedAt
   );
   assert.match(writeOfferFn, /firebaseDbPatch\(`pendingjobs\/\$\{cid\}\/\$\{bookingId\}`/);
 });
+
+test('_writeManualDriverOffer writes allbookings Offered before notification (#9063)', () => {
+  const pendingIdx = writeOfferFn.indexOf('firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`');
+  const allbookingsIdx = writeOfferFn.indexOf('_writeAllbookingsLiveAwait(cid, bookingId, _pjPatch');
+  const notifIdx = writeOfferFn.indexOf('firebaseDbSet(`notification/${did}`');
+  assert.ok(pendingIdx >= 0, 'pendingjobs patch missing');
+  assert.ok(allbookingsIdx >= 0, 'allbookings write missing');
+  assert.ok(notifIdx >= 0, 'notification write missing');
+  assert.ok(
+    pendingIdx < notifIdx && allbookingsIdx < notifIdx,
+    'notification must not precede pendingjobs/allbookings Offered (first re-offer blink)',
+  );
+  assert.match(writeOfferFn, /returnReason:\s*''/);
+});

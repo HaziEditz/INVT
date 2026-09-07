@@ -4570,37 +4570,6 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     _ts:            _now,
   };
 
-  if (!_skipNotif) {
-    await firebaseDbSet(`notification/${did}`, notifPayload, tok)
-      .catch(e => console.warn(`  [${sourceTag}] notification/${did} write failed: ${e && e.message}`));
-  }
-
-  if (vid) {
-    await firebaseDbSet(`jobs/${cid}/${vid}/${did}/${bookingId}`, {
-      BookingId:  String(bookingId),
-      Status:       _stat,
-      BookingStatus: _stat,
-      VehicleId:    vid,
-      DriverId:     did,
-      offeredAt:    _now,
-      eventType:    'new_offer',
-      serviceType:  _svc,
-      BookingSource: _src,
-    }, tok).catch(e => console.warn(`  [${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingId} write failed: ${e && e.message}`));
-
-    if (!_skipNotif) {
-      await firebaseDbPatch(`online/${cid}/${vid}/current`, {
-        joboffer:     String(bookingId),
-        jobpickup:    notifPayload.jobpickup,
-        jobdropoff:   notifPayload.jobdropoff,
-        JobphoneNo:   notifPayload.JobphoneNo,
-        jobname:      notifPayload.jobname,
-        currentJobId: String(bookingId),
-        jobId:        String(bookingId),
-      }, tok).catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid}/current write failed: ${e && e.message}`));
-    }
-  }
-
   const _pjPatch = {
     BookingId:       String(bookingId),
     Status:          _stat,
@@ -4637,6 +4606,10 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     jobinfo:         notifPayload.jobinfo,
     CustomeRate:     notifPayload.CustomeRate,
     Account_Name:    notifPayload.jobAccountName,
+    // New exclusive offer is not a returned pool row — leftover Declined/Timeout
+    // returnReason would make the driver app suppress/kill the first re-offer popup.
+    returnReason:    '',
+    ReturnReason:    '',
     // Driver Offer/Current/Queue meta strip — must survive exclusive-offer patch.
     ...(_vtOffer ? { VehicleType: _vtOffer, vehicleType: _vtOffer } : {}),
     ...(_createdByOffer ? { CreatedBy: _createdByOffer, createdBy: _createdByOffer } : {}),
@@ -4656,9 +4629,42 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   if (_pickLL) _pjPatch.pickupLocation = { address: notifPayload.jobpickup, lat: _pickLL.lat, lng: _pickLL.lng };
   if (_dropLL) _pjPatch.dropoffLocation = { address: notifPayload.jobdropoff, lat: _dropLL.lat, lng: _dropLL.lng };
 
+  // #9063: allbookings/pendingjobs Offered MUST land before notification, otherwise
+  // the driver popup mounts then pendingjobs (still Declined/Pending) suppresses it.
   await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, _pjPatch, tok)
     .catch(e => console.warn(`  [${sourceTag}] pendingjobs patch failed: ${e && e.message}`));
   await _writeAllbookingsLiveAwait(cid, bookingId, _pjPatch, job, tok, { forceSet: true });
+
+  if (vid) {
+    await firebaseDbSet(`jobs/${cid}/${vid}/${did}/${bookingId}`, {
+      BookingId:  String(bookingId),
+      Status:       _stat,
+      BookingStatus: _stat,
+      VehicleId:    vid,
+      DriverId:     did,
+      offeredAt:    _now,
+      eventType:    'new_offer',
+      serviceType:  _svc,
+      BookingSource: _src,
+    }, tok).catch(e => console.warn(`  [${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingId} write failed: ${e && e.message}`));
+
+    if (!_skipNotif) {
+      await firebaseDbPatch(`online/${cid}/${vid}/current`, {
+        joboffer:     String(bookingId),
+        jobpickup:    notifPayload.jobpickup,
+        jobdropoff:   notifPayload.jobdropoff,
+        JobphoneNo:   notifPayload.JobphoneNo,
+        jobname:      notifPayload.jobname,
+        currentJobId: String(bookingId),
+        jobId:        String(bookingId),
+      }, tok).catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid}/current write failed: ${e && e.message}`));
+    }
+  }
+
+  if (!_skipNotif) {
+    await firebaseDbSet(`notification/${did}`, notifPayload, tok)
+      .catch(e => console.warn(`  [${sourceTag}] notification/${did} write failed: ${e && e.message}`));
+  }
 
   console.log(`  [${sourceTag}] _writeManualDriverOffer job #${bookingId} → driver ${did} veh ${vid} (${_svc}/${_src})`);
 }
