@@ -545,6 +545,7 @@ const POOL_RESTORE_ACTIONS = new Set([
   'scheduled_release',
   'network_unreachable',
   'heal_network_reason',
+  'same_driver_cooldown',
 ]);
 
 function refreshTrustsPoolRestore(
@@ -1069,11 +1070,14 @@ async function refreshJobFromFirebaseCaches(
     if (st === 'Pending' || st === 'No One' || st === 'Scheduled' || trustPoolRestore) {
       clearOfferAwaitingAllbookings(bookingId);
     }
-    if (ACTIVE_BOOKING_STATUSES.has(st)) {
+    // Place by *effective* job status after pool-restore hint — lagging AB Offered
+    // must not park a Pending job on the Offer tab (#9062 visibility).
+    const placeSt = normalizeJobStatus(job.status);
+    if (ACTIVE_BOOKING_STATUSES.has(placeSt) && !isPoolUaStatus(placeSt)) {
       if (!isCompletedJobSuppressed(job.id)) {
         bookingsRef.set(job.id, job);
       }
-    } else if (st === 'Pending' || st === 'No One') {
+    } else if (placeSt === 'Pending' || placeSt === 'No One' || placeSt === 'Scheduled') {
       pendingRef.set(job.id, job);
       bookingsRef.delete(bookingId);
     }

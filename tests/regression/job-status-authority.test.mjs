@@ -451,6 +451,15 @@ test('authority: mergeJobStatus pool peers and terminal seq rules', () => {
   assert.equal(statusRank('Completed'), 100);
 });
 
+test('authority: mergeJobStatus Pending beats lagging Offered after decline/timeout', () => {
+  // Optimistic pool restore (bumped seq) must stay on U-A while allbookings still Offered.
+  assert.equal(mergeJobStatus('Pending', 'Offered', 5, 4), 'Pending');
+  assert.equal(mergeJobStatus('Pending', 'Offered', 5, 5), 'Pending');
+  assert.equal(mergeJobStatus('No One', 'Offered', 3, 2), 'No One');
+  // Genuine re-offer with newer seq still wins.
+  assert.equal(mergeJobStatus('Pending', 'Offered', 5, 6), 'Offered');
+});
+
 // ─── Allbookings queue helpers ───────────────────────────────────────────────
 
 test('authority: allbookingsRecordIsQueued and coerceAllbookingsLiveStatus', () => {

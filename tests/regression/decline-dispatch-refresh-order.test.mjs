@@ -21,11 +21,37 @@ test('driverDeclineJob signals dispatch refresh before pool Firebase fanout', ()
   const body = src.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 8000);
   const refreshIdx = body.indexOf('await _dispatchRefreshForJob');
   const fanoutIdx = body.indexOf('await _releaseOfferToPoolFirebase');
+  const earlyPendingIdx = body.indexOf('_writePendingJobFirebase');
   assert.ok(refreshIdx >= 0, 'decline refresh missing');
   assert.ok(fanoutIdx >= 0, 'decline pool fanout missing');
   assert.ok(
     refreshIdx < fanoutIdx,
     'decline must refresh dispatchConsole before awaiting _releaseOfferToPoolFirebase (#9053)',
+  );
+  assert.ok(
+    earlyPendingIdx >= 0 && earlyPendingIdx < fanoutIdx,
+    'decline must kick early pendingjobs write before full pool fanout (#9062)',
+  );
+});
+
+test('stale-offer pool release flips Pending before awaiting clearOfferOnFirebase', () => {
+  const fnStart = src.indexOf('async function _releaseStaleOfferedJobToPool');
+  assert.ok(fnStart >= 0, '_releaseStaleOfferedJobToPool missing');
+  const fnEnd = src.indexOf('\nasync function ', fnStart + 10);
+  const body = src.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 9000);
+  const pendingIdx = body.indexOf("job.BookingStatus = 'Pending'");
+  const clearIdx = body.indexOf('await clearOfferOnFirebase');
+  const refreshIdx = body.indexOf('await _dispatchRefreshForJob');
+  assert.ok(pendingIdx >= 0, 'Pending flip missing');
+  assert.ok(clearIdx >= 0, 'clearOffer missing');
+  assert.ok(refreshIdx >= 0, 'refresh missing');
+  assert.ok(
+    pendingIdx < clearIdx,
+    'U-A Pending must be set before awaiting clearOfferOnFirebase (#9062)',
+  );
+  assert.ok(
+    refreshIdx < clearIdx,
+    'dispatch refresh must run before awaiting clearOfferOnFirebase (#9062)',
   );
 });
 

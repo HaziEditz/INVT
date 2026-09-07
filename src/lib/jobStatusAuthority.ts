@@ -512,6 +512,9 @@ export function mergeJobStatus(
     return ex;
   }
   if ((inc === 'No One' || inc === 'Pending') && incomingSeq >= existingSeq) return inc;
+  // Decline/timeout pool restore: optimistic Pending (bumped seq) must not lose to a
+  // lagging allbookings Offered row — that left Offer tab stuck until FB fanout (#9062).
+  if (POOL.includes(ex) && inc === 'Offered' && incomingSeq <= existingSeq) return ex;
   // Queued is sticky vs pool demotion — but forward lifecycle must always win
   // (promote/stage often reuse or barely bump updateSeq; seq must not pin Queue forever).
   const QUEUED_PROMOTE: JobStatus[] = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];

@@ -7044,28 +7044,11 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   const bookingId = job.Id;
   const prevDriver = job.DriverId;
   const prevVehicle = job.VehicleId || job.VehicleNo;
-
-  // Pull the offer from the original phone before exposing the booking to another
-  // driver. C4 also reconciles on reconnect, but server cleanup is the primary path.
-  await clearOfferOnFirebase(
-    cid,
-    prevVehicle,
-    prevDriver,
-    bookingId,
-    sourceTag || 'stale-offer-heal',
-    'stale',
-    {
-      awaitCompletion: opts.networkBounce
-        ? process.env.NODE_ENV !== 'test'
-        : true,
-    },
-  ).catch((e) => {
-    console.warn(
-      `[${sourceTag || 'stale-offer-heal'}] offer clear failed #${bookingId}: ${e && e.message}`,
-    );
-  });
-
   const prevSt = job.BookingStatus;
+  let earlyPendingWrite = Promise.resolve();
+
+  // U-A first (#9062): flip jobStore + dispatch refresh BEFORE awaiting offer clear /
+  // Firebase fanout so Offer tab does not look stuck while clearOffer runs.
   _stampLastOfferDriver(job, prevDriver);
   job.BookingStatus = 'Pending';
   job.offeredAt = null;
@@ -7093,7 +7076,6 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   });
 
   if (cid && bookingId) {
-    // Audit missing seq on #9053 network bounce — always write bookingEvents.
     _writeBookingEvent(cid, bookingId, 'StatusChanged', {
       from: prevSt,
       to: 'Pending',
@@ -7103,7 +7085,7 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
       returnReason: job.returnReason,
       networkBounce: !!opts.networkBounce,
     }, 'system', job.updateSeq).catch(() => {});
-    // Signal UA immediately — do not wait on Firebase fanout (same class as #9053 decline lag).
+    earlyPendingWrite = _writePendingJobFirebase(cid, bookingId, job, 'Pending').catch(() => {});
     await _dispatchRefreshForJob(job, {
       cid,
       previousStatus: prevSt,
@@ -7113,20 +7095,44 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
       declinedDriverId: String(prevDriver || ''),
       returnReason: job.returnReason,
     });
-    await _writePendingJobFirebase(cid, bookingId, job, 'Pending');
-    await _fanVersionToFirebaseAwait(cid, bookingId, {
-      BookingStatus: 'Pending',
-      Status: 'Pending',
-      DriverId: '0',
-      VehicleId: '0',
-      AssignedDriver: '',
-      AssignedDriverId: '',
-      updateSeq: parseInt(job.updateSeq) || 0,
-      _seq: parseInt(job.updateSeq) || 0,
-      version: parseInt(job.updateSeq) || 0,
-      eventType: 'updated',
-      returnReason: job.returnReason,
-    }, false);
+  }
+
+  // Pull offer from phone after U-A is visible (accept ownership still gates exclusive Offered).
+  await clearOfferOnFirebase(
+    cid,
+    prevVehicle,
+    prevDriver,
+    bookingId,
+    sourceTag || 'stale-offer-heal',
+    'stale',
+    {
+      awaitCompletion: opts.networkBounce
+        ? process.env.NODE_ENV !== 'test'
+        : true,
+    },
+  ).catch((e) => {
+    console.warn(
+      `[${sourceTag || 'stale-offer-heal'}] offer clear failed #${bookingId}: ${e && e.message}`,
+    );
+  });
+
+  if (cid && bookingId) {
+    await Promise.all([
+      earlyPendingWrite,
+      _fanVersionToFirebaseAwait(cid, bookingId, {
+        BookingStatus: 'Pending',
+        Status: 'Pending',
+        DriverId: '0',
+        VehicleId: '0',
+        AssignedDriver: '',
+        AssignedDriverId: '',
+        updateSeq: parseInt(job.updateSeq) || 0,
+        _seq: parseInt(job.updateSeq) || 0,
+        version: parseInt(job.updateSeq) || 0,
+        eventType: 'updated',
+        returnReason: job.returnReason,
+      }, false),
+    ]);
     await _dispatchRefreshForJob(job, {
       cid,
       previousStatus: prevSt,
@@ -8883,9 +8889,12 @@ async function driverDeclineJob(opts) {
       returnReason: job.returnReason,
       previousOfferStatus: _prevSt,
     }, 'driver', job.updateSeq).catch(() => {});
-    // CRITICAL (#9053): signal dispatchConsole refresh BEFORE awaiting Firebase pool fanout.
-    // Awaiting allbookings/pendingjobs first left the console stuck on Offered for hundreds of ms
-    // while jobStore was already Pending — UI lag, not a client cache bug.
+    // CRITICAL (#9053 / #9062): signal dispatchConsole refresh BEFORE awaiting Firebase pool fanout.
+    // Kick pendingjobs write in parallel so U-A is visible in Firebase within seconds — do not
+    // wait for sequential allbookings+pendingjobs before the console leaves Offer.
+    const _earlyPendingWrite = _writePendingJobFirebase(_cid, bookingId, job, _restoredPool).catch((e) => {
+      console.warn(`  [${source}] early pendingjobs write failed: ${e && e.message}`);
+    });
     await _dispatchRefreshForJob(job, {
       cid: _cid,
       previousStatus: _prevSt,
@@ -8896,6 +8905,7 @@ async function driverDeclineJob(opts) {
       returnReason: job.returnReason,
     });
     await _releaseOfferToPoolFirebase(_cid, bookingId, job, _restoredPool, _offerCtx);
+    await _earlyPendingWrite;
     getFirebaseServerToken().then(async _tok => {
       if (!_tok) return;
       await fbRequest(`${FB_DB_URL}/notification/${driverId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
@@ -9195,8 +9205,12 @@ async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus, offe
       _seq: seq,
       lastUpdatedAt: job.lastUpdatedAt || new Date().toISOString(),
     };
-    await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok);
-    await _writePendingJobFirebase(cid, bookingId, job, restored);
+    // Parallel fanout — pendingjobs + allbookings together so U-A is visible in
+    // Firebase within seconds (not sequential awaits that left Offer looking stuck).
+    await Promise.all([
+      firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok),
+      _writePendingJobFirebase(cid, bookingId, job, restored),
+    ]);
     const ctx = offerCtx || _offerCtxFromJob(job, '');
     if (ctx.driverId && ctx.vehicleId) {
       clearOfferOnFirebase(cid, ctx.vehicleId, ctx.driverId, bookingId, 'pool-restore', 'stale');
@@ -30070,6 +30084,16 @@ async function _serverAutoDispatchTick() {
           console.log(
             `[server-auto-dispatch] job #${job.Id} hold UA — same-driver cooldown after decline/timeout/network; trying next Pending`,
           );
+          // Reinforce U-A visibility + Declined/Timeout label while THIS driver is blocked
+          // (other Available drivers are offered above; sole cooldown must not look Offered).
+          await _dispatchRefreshForJob(job, {
+            cid,
+            previousStatus: job.BookingStatus,
+            status: job.BookingStatus,
+            action: 'same_driver_cooldown',
+            driverId: '0',
+            returnReason: job.returnReason || '',
+          }).catch(() => {});
           continue;
         }
         // Available exist but none are network-reachable — stamp Network issue, then

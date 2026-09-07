@@ -20,6 +20,6 @@ test('NETWORK_OFFER_HARD_STALE_MS aligns with STALE_PRESENCE_MS for sole soft-st
   assert.match(src, /function _isSoleAvailableSoftStaleRetry\s*\(/);
   assert.match(src, /function _healStickyNetworkReturnReasonOnJob\s*\(/);
   assert.match(src, /action:\s*timedOut\s*\?\s*'timeout'\s*:\s*'decline'/);
-  assert.match(src, /CRITICAL \(#9053\): signal dispatchConsole refresh BEFORE/);
+  assert.match(src, /CRITICAL \(#9053(?:\s*\/\s*#9062)?\): signal dispatchConsole refresh BEFORE/);
   assert.match(src, /function _stampSameDriverOfferCooldown\s*\(/);
 });
