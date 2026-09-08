@@ -98,6 +98,7 @@ const {
   computeNoShowWaitCharge,
   NOSHOW_EXTENSION_MS,
 } = require('./lib/pickupResolution.cjs');
+const cancelFairness = require('./lib/cancelFairness.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -3153,6 +3154,37 @@ async function _cancelOrphanFirebaseBooking(opts) {
   const nowIso = new Date().toISOString();
   const reason = String(opts.reason || 'Dispatcher cancel (orphan Firebase cleanup)');
   const cancelledBy = String(opts.cancelledBy || 'dispatcher');
+  const cancelledByKind = String(opts.cancelledByKind || '').toLowerCase();
+
+  const rec = Object.assign({}, ab && typeof ab === 'object' ? ab : {}, pj && typeof pj === 'object' ? pj : {}, {
+    Id: bookingId,
+    companyId: cid,
+  });
+  const drvOrphan = String(rec.DriverId || rec.AssignedDriverId || '').trim();
+  const hasDrvOrphan = !!(drvOrphan && drvOrphan !== '0' && drvOrphan !== '-1' && drvOrphan !== '-2');
+  let orphanFairness = null;
+  const alreadyFair = !!(ab && (ab.cancelFairness || ab.CancelFairness || ab.walletCreditAmount));
+  if (!alreadyFair && (pjLive || abLive)) {
+    try {
+      orphanFairness = cancelFairness.fairnessFromJob(rec, {
+        status: pjSt || abSt || 'Pending',
+        dispatcherTriggered: cancelledByKind === 'dispatcher',
+        hasDriver: hasDrvOrphan,
+        progress: { progressPct: null, gpsUnknown: true },
+      });
+      if (cancelFairness.isPrepaidKind(orphanFairness.billableKind) && !_jobWasPrepaidPaid(rec)) {
+        orphanFairness = Object.assign({}, orphanFairness, {
+          creditAmount: 0,
+          chargeAmount: orphanFairness.chargeTarget === 'card_retain' ? 0 : orphanFairness.chargeAmount,
+          chargeFraction: orphanFairness.chargeTarget === 'card_retain' ? 0 : orphanFairness.chargeFraction,
+          chargeTarget: orphanFairness.chargeTarget === 'card_retain' ? 'none' : orphanFairness.chargeTarget,
+          outcome: orphanFairness.chargeTarget === 'card_retain' ? 'free' : orphanFairness.outcome,
+        });
+      }
+    } catch (_fe) {
+      orphanFairness = null;
+    }
+  }
 
   console.warn(
     `  [${source}] §FIX-CB orphan cancel #${bookingId} cid=${cid} ` +
@@ -3210,6 +3242,27 @@ async function _cancelOrphanFirebaseBooking(opts) {
     );
   } catch (_) {}
 
+  if (orphanFairness) {
+    try {
+      await _creditWalletForCancel(rec, orphanFairness, cid);
+    } catch (_we) { /* non-fatal */ }
+    try {
+      await _recordCashCancelAbuse(rec, orphanFairness);
+    } catch (_ce) { /* non-fatal */ }
+    if (orphanFairness.chargeTarget === 'account_bill' || orphanFairness.chargeTarget === 'acc_bill') {
+      if (orphanFairness.chargeAmount > 0) {
+        _scheduleUpsertCompletedJobFromDispatch(Object.assign({}, rec, {
+          BookingStatus: 'Cancelled',
+          TotalFare: orphanFairness.chargeAmount,
+          accountBillAmount: orphanFairness.chargeAmount,
+        }), `${source}/orphan-account-bill`, { preferIncoming: true });
+      }
+    }
+    void _notifyPassengerCancelFairness(cid, bookingId, rec, orphanFairness, cancelledByKind || cancelledBy);
+  }
+
+  const phoneOut = _companyContactPhone(cid);
+  void _resolveCompanyPhone(cid);
   return {
     ok: true,
     orphanCleanup: true,
@@ -3220,7 +3273,316 @@ async function _cancelOrphanFirebaseBooking(opts) {
     driverFreed: false,
     driverState: 'unchanged',
     version: 0,
+    fairness: orphanFairness,
+    companyPhone: phoneOut,
+    supportEmail: cancelFairness.SUPPORT_EMAIL,
+    walletCredited: !!(orphanFairness && orphanFairness.creditAmount > 0),
+    walletCreditAmount: orphanFairness ? orphanFairness.creditAmount : 0,
+    passengerMessage: orphanFairness ? orphanFairness.passengerMessage : '',
   };
+}
+
+const _COMPANY_PHONE_CACHE = Object.create(null);
+
+function _pickCompanyPhone() {
+  const keys = ['phone', 'contactPhone', 'dispatchPhone', 'officePhone', 'Phone', 'Phone1', 'companyPhone'];
+  for (let i = 0; i < arguments.length; i++) {
+    const o = arguments[i];
+    if (!o || typeof o !== 'object') continue;
+    for (let k = 0; k < keys.length; k++) {
+      const v = String(o[keys[k]] || '').trim();
+      if (v.length >= 7) return v;
+    }
+  }
+  return '';
+}
+
+function _companyContactPhone(cid) {
+  const scid = String(cid || '').trim();
+  if (!scid) return '';
+  if (_COMPANY_PHONE_CACHE[scid]) return _COMPANY_PHONE_CACHE[scid];
+  const reg = registrationStore.find((r) => r && String(r.companyId) === scid);
+  const fromReg = _pickCompanyPhone(reg);
+  if (fromReg) {
+    _COMPANY_PHONE_CACHE[scid] = fromReg;
+    return fromReg;
+  }
+  return '';
+}
+
+async function _resolveCompanyPhone(cid) {
+  const cached = _companyContactPhone(cid);
+  if (cached) return cached;
+  const scid = String(cid || '').trim();
+  if (!scid) return '';
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return '';
+    const [profile, settings, sc] = await Promise.all([
+      firebaseDbGet(`companyProfiles/${scid}`, tok).catch(() => null),
+      firebaseDbGet(`companySettings/${scid}`, tok).catch(() => null),
+      firebaseDbGet(`superClients/${scid}`, tok).catch(() => null),
+    ]);
+    const phone = _pickCompanyPhone(profile, settings, sc);
+    if (phone) _COMPANY_PHONE_CACHE[scid] = phone;
+    return phone;
+  } catch (_e) {
+    return '';
+  }
+}
+
+function _canonicalPhoneDigits(phone) {
+  let d = String(phone || '').replace(/[^0-9]/g, '');
+  if (!d) return '';
+  const hadZero = d.startsWith('0');
+  if (hadZero) d = d.replace(/^0+/, '');
+  if (hadZero) return d ? `64${d}` : '';
+  if (d.startsWith('64') && d.length >= 10) return d;
+  return `64${d}`;
+}
+
+function _driverGpsForCancel(job) {
+  const drv = String(job.DriverId || job.AssignedDriverId || '').trim();
+  if (!drv || drv === '0' || drv === '-1' || drv === '-2') return null;
+  const zd = ZONE_DRIVERS.find((d) => d && (
+    String(d.driverid) === drv || String(d.VehicleId) === drv || String(d.vehiclenumber) === drv
+  ));
+  if (!zd) return null;
+  const lat = parseFloat(zd.lat ?? zd.Lat);
+  const lng = parseFloat(zd.lng ?? zd.Lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return null;
+  return { lat, lng };
+}
+
+function _cancelProgressForJob(job) {
+  const pickup = _parseJobLatLng(job);
+  const driver = _driverGpsForCancel(job);
+  const start = parseFloat(job.driverStartDistanceToPickup || job.DriverStartDistanceToPickup || 0);
+  return cancelFairness.computeDriverProgress({
+    pickup,
+    driver,
+    startDistanceKm: start,
+  });
+}
+
+function _jobWasPrepaidPaid(job) {
+  const st = String(job.paymentStatus || job.PaymentStatus || '').toLowerCase();
+  if (st === 'paid' || st === 'confirmed' || st === 'captured') return true;
+  if (job.isPrePaid === true || job.isPrepaid === true || job.prepaid === true) return true;
+  if (job.stripeChargeId || job.StripeChargeId || job.stripePaymentIntentId || job.StripePaymentIntentId) return true;
+  if (job.paidAt || job.PaidAt) return true;
+  const method = cancelFairness.normalizePaymentKind(job.PaymentMethod || job.paymentMethod || job.PaymentType);
+  if (method === 'wallet' && Number(job.walletAmountApplied || job.WalletAmountApplied) > 0) return true;
+  return false;
+}
+
+function _stampCancelProgressOrigin(job) {
+  if (!job || job.driverStartDistanceToPickup) return;
+  const pickup = _parseJobLatLng(job);
+  const driver = _driverGpsForCancel(job);
+  const km = cancelFairness.haversineKm(driver, pickup);
+  if (km && km > 0.05) {
+    job.driverStartDistanceToPickup = km;
+    job.DriverStartDistanceToPickup = km;
+  }
+}
+
+async function _resolvePassengerWalletKey(job, tok) {
+  const uid = _passengerUidFromRecord(job) || String(
+    job.passengerUid || job.PassengerUid || job.passengerKey || job.PassengerKey || '',
+  ).trim();
+  const phone = String(job.PhoneNo || job.passengerPhone || job.phone || '').trim();
+  const email = String(job.PassengerEmail || job.passengerEmail || job.Email || job.email || '').trim().toLowerCase();
+  const tryKeys = [];
+  if (uid && !uid.startsWith('web_') && uid !== 'guest') tryKeys.push(uid);
+  const canon = _canonicalPhoneDigits(phone);
+  if (canon) {
+    try {
+      const idx = await firebaseDbGet(`passengerIndex/phone/${canon}`, tok);
+      if (idx && idx.key) tryKeys.push(String(idx.key));
+    } catch (_e) { /* continue */ }
+    tryKeys.push(canon);
+  }
+  if (email && email.includes('@')) {
+    const emailKey = email.replace(/\./g, ',').replace(/@/g, '__at__');
+    try {
+      const idx = await firebaseDbGet(`passengerIndex/email/${emailKey}`, tok);
+      if (idx && idx.key) tryKeys.push(String(idx.key));
+    } catch (_e2) { /* continue */ }
+  }
+  for (const key of tryKeys) {
+    if (!key) continue;
+    try {
+      const w = await firebaseDbGet(`passengerWallet/${key}`, tok);
+      if (w && typeof w === 'object') return key;
+    } catch (_e3) { /* continue */ }
+  }
+  return tryKeys[0] || '';
+}
+
+async function _creditWalletForCancel(job, fairness, cid) {
+  if (!fairness || !(fairness.creditAmount > 0)) return { ok: false, skipped: true };
+  if (cancelFairness.isPrepaidKind(fairness.billableKind) && !_jobWasPrepaidPaid(job)) {
+    return { ok: false, skipped: true, reason: 'not_prepaid_paid' };
+  }
+  const tok = await getFirebaseServerToken();
+  if (!tok) return { ok: false, error: 'no_token' };
+  const key = await _resolvePassengerWalletKey(job, tok);
+  if (!key) return { ok: false, error: 'wallet_key_unresolved' };
+  const cents = Math.round(fairness.creditAmount * 100);
+  if (cents <= 0) return { ok: false, skipped: true };
+  const path = `passengerWallet/${key}`;
+  let cur = {};
+  try { cur = (await firebaseDbGet(path, tok)) || {}; } catch (_e) { cur = {}; }
+  const balCents = Math.max(
+    0,
+    Math.round(Number(cur.balanceCents) || 0),
+    Math.round((Number(cur.balance) || 0) * 100),
+  );
+  const nextCents = balCents + cents;
+  const nowIso = new Date().toISOString();
+  const entryId = `cx${job.Id || Date.now()}`;
+  if (cur.entries && cur.entries[entryId]) {
+    return { ok: true, passengerKey: key, creditAmount: fairness.creditAmount, newBalanceCents: balCents, idempotent: true };
+  }
+  const next = Object.assign({}, cur, {
+    balance: +(nextCents / 100).toFixed(2),
+    balanceCents: nextCents,
+    currency: cur.currency || 'NZD',
+    updatedAt: nowIso,
+    phone: cur.phone || String(job.PhoneNo || ''),
+    entries: Object.assign({}, cur.entries || {}, {
+      [entryId]: {
+        amount: +(cents / 100).toFixed(2),
+        amountCents: cents,
+        type: 'credit',
+        reason: 'cancellation',
+        jobId: String(job.Id || ''),
+        companyId: String(cid || job.companyId || ''),
+        note: fairness.passengerMessage || '',
+        createdAt: nowIso,
+      },
+    }),
+  });
+  await firebaseDbSet(path, next, tok);
+  return { ok: true, passengerKey: key, creditAmount: fairness.creditAmount, newBalanceCents: nextCents };
+}
+
+async function _recordCashCancelAbuse(job, fairness) {
+  if (!fairness || fairness.billableKind !== 'cash') return null;
+  const tok = await getFirebaseServerToken();
+  if (!tok) return null;
+  const key = await _resolvePassengerWalletKey(job, tok);
+  if (!key) return null;
+  const path = `passengerCancelAbuse/${key}`;
+  let cur = {};
+  try { cur = (await firebaseDbGet(path, tok)) || {}; } catch (_e) { cur = {}; }
+  const next = cancelFairness.recordCashCancelState(cur, Date.now());
+  await firebaseDbSet(path, next, tok);
+  if (next.cardOnly) {
+    const uid = _passengerUidFromRecord(job);
+    if (uid) {
+      await firebaseDbPatch(`users/${uid}`, { cardOnly: true, cardOnlyAt: next.cardOnlyAt }, tok).catch(() => {});
+    }
+  }
+  return next;
+}
+
+async function _notifyPassengerCancelFairness(cid, bookingId, job, fairness, cancelledBy) {
+  if (!cid || !bookingId || !fairness) return;
+  const isCash = fairness.billableKind === 'cash';
+  const title = fairness.dispatcherTriggered ? 'Booking cancelled by dispatch' : (fairness.title || 'Booking cancelled');
+  const body = String(fairness.passengerMessage || 'Your booking was cancelled.');
+  const nowIso = new Date().toISOString();
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const patch = {
+      Status: 'Cancelled',
+      status: 'Cancelled',
+      BookingStatus: 'Cancelled',
+      CancelledAt: nowIso,
+      cancelFairness: {
+        outcome: fairness.outcome,
+        stage: fairness.stage,
+        chargeAmount: fairness.chargeAmount,
+        creditAmount: fairness.creditAmount,
+        chargeTarget: fairness.chargeTarget,
+        gpsUnknown: fairness.gpsUnknown,
+        councilCharged: false,
+      },
+      cancelPassengerMessage: body,
+      walletCreditAmount: fairness.creditAmount,
+      refundStatus: fairness.creditAmount > 0
+        ? (fairness.chargeAmount > 0 ? 'partial_wallet_credit' : 'wallet_credited')
+        : (fairness.chargeAmount > 0 ? 'charged' : 'no_charge'),
+    };
+    await firebaseDbPatch(`rideStatus/${cid}/${bookingId}`, patch, tok).catch(() => {});
+    const paxUid = _passengerUidFromRecord(job);
+    if (paxUid) {
+      await firebaseDbPatch(`Passengerjobs/${paxUid}/${bookingId}`, {
+        ...patch,
+        cancelNotification: {
+          title,
+          message: body,
+          bookingId: String(bookingId),
+          timestamp: nowIso,
+          cancelledBy: String(cancelledBy || ''),
+        },
+      }, tok).catch(() => {});
+    }
+    if (!isCash || fairness.dispatcherTriggered) {
+      await _sendPassengerExpoPush({
+        cid,
+        bookingId,
+        booking: job,
+        title,
+        body,
+        data: {
+          bookingId: String(bookingId),
+          type: 'cancelled',
+          outcome: fairness.outcome,
+          companyId: String(cid),
+        },
+      });
+    }
+  } catch (e) {
+    console.warn(`  [cancel-fairness-notify] #${bookingId} failed: ${e && e.message}`);
+  }
+}
+
+function _applyFairnessStamps(job, fairness, walletResult) {
+  if (!job || !fairness) return;
+  job.CancelFairness = {
+    outcome: fairness.outcome,
+    stage: fairness.stage,
+    chargeFraction: fairness.chargeFraction,
+    chargeAmount: fairness.chargeAmount,
+    creditAmount: fairness.creditAmount,
+    chargeTarget: fairness.chargeTarget,
+    gpsUnknown: fairness.gpsUnknown,
+    billableKind: fairness.billableKind,
+    councilCharged: false,
+    passengerMessage: fairness.passengerMessage,
+  };
+  job.CancelChargeAmount = fairness.chargeAmount;
+  job.walletCreditAmount = fairness.creditAmount;
+  job.CouncilCharged = false;
+  job.councilCharged = false;
+  if (walletResult && walletResult.ok) job.walletCreditKey = walletResult.passengerKey;
+  if (fairness.creditAmount > 0) {
+    job.refundStatus = fairness.chargeAmount > 0 ? 'partial_wallet_credit' : 'wallet_credited';
+  } else if (fairness.chargeAmount > 0) {
+    job.refundStatus = 'charged';
+  } else {
+    job.refundStatus = 'no_charge';
+  }
+  if (fairness.chargeTarget === 'account_bill' || fairness.chargeTarget === 'acc_bill') {
+    job.accountCancelBilled = true;
+    job.TotalFare = fairness.chargeAmount;
+    job.accountBillAmount = fairness.chargeAmount;
+  }
 }
 
 async function cancelBooking(opts) {
@@ -3247,10 +3609,17 @@ async function cancelBooking(opts) {
     (j.BookingStatus === 'Cancelled' || j.BookingStatus === 'No Show'));
   if (_closed) {
     console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already ${_closed.BookingStatus} (by ${_closed.CancelledBy || '?'}) — no-op`);
+    const _cf = _closed.CancelFairness || null;
     return { ok: true, idempotent: true, cancelStage: _closed.CancelStage || 'unknown',
              cancelledBy: _closed.CancelledBy || '', terminalKind: _closed.BookingStatus,
              driverFreed: false, driverState: 'unchanged',
-             version: parseInt(_closed.updateSeq) || 0, booking: _publicBooking(_closed) };
+             version: parseInt(_closed.updateSeq) || 0, booking: _publicBooking(_closed),
+             fairness: _cf,
+             companyPhone: _companyContactPhone(companyId || _closed.companyId),
+             supportEmail: cancelFairness.SUPPORT_EMAIL,
+             walletCredited: String(_closed.refundStatus || '').indexOf('wallet') !== -1,
+             walletCreditAmount: Number(_closed.walletCreditAmount) || (_cf && _cf.creditAmount) || 0,
+             passengerMessage: (_cf && _cf.passengerMessage) || _closed.cancelPassengerMessage || '' };
   }
 
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
@@ -3276,6 +3645,7 @@ async function cancelBooking(opts) {
       bookingId,
       companyId,
       cancelledBy: cancelledByDisplay,
+      cancelledByKind: cancelledBy,
       reason,
       source,
       cancelSource,
@@ -3296,6 +3666,50 @@ async function cancelBooking(opts) {
   const _cancelStage = job.BookingStatus || 'unknown';
   const _nowIso = new Date().toISOString();
   const _cancelKey = String(bookingId);
+
+  const _isSelfServe = cancelledBy === 'passenger' || cancelledBy === 'website';
+  const _tkPreview = terminalKindOpt || (/no\s*show/i.test(reason) ? 'No Show' : 'Cancelled');
+  const _isNoShowTerm = _tkPreview === 'No Show' || _tkPreview === 'NoShow';
+  if (!recallToPending && _isSelfServe && !cancelFairness.selfServeAllowedStatus(_cancelStage)) {
+    void _resolveCompanyPhone(_cid);
+    const _phone = _companyContactPhone(_cid);
+    console.warn(`  [${source}] §FIX-CB self-serve blocked #${bookingId} status=${_cancelStage}`);
+    return {
+      ok: false,
+      error_code: 'self_serve_locked',
+      error: _phone
+        ? `The driver has arrived — cancellation is no longer available. Call the company on ${_phone}.`
+        : `The driver has arrived — cancellation is no longer available. Contact the company or email ${cancelFairness.SUPPORT_EMAIL}.`,
+      companyPhone: _phone,
+      supportEmail: cancelFairness.SUPPORT_EMAIL,
+      cancelStage: _cancelStage,
+    };
+  }
+
+  const _progress = _cancelProgressForJob(job);
+  let _fairness = recallToPending ? null : cancelFairness.fairnessFromJob(job, {
+    status: _cancelStage,
+    isNoShow: _isNoShowTerm,
+    terminalKind: _isNoShowTerm ? 'No Show' : 'Cancelled',
+    dispatcherTriggered: cancelledBy === 'dispatcher',
+    hasDriver: _hasDriver,
+    progress: _progress,
+  });
+  if (_fairness && cancelFairness.isPrepaidKind(_fairness.billableKind) && !_jobWasPrepaidPaid(job)) {
+    _fairness = Object.assign({}, _fairness, {
+      creditAmount: 0,
+      chargeAmount: _fairness.chargeTarget === 'card_retain' ? 0 : _fairness.chargeAmount,
+      chargeFraction: _fairness.chargeTarget === 'card_retain' ? 0 : _fairness.chargeFraction,
+      chargeTarget: _fairness.chargeTarget === 'card_retain' ? 'none' : _fairness.chargeTarget,
+      outcome: _fairness.chargeTarget === 'card_retain' ? 'free' : _fairness.outcome,
+    });
+  }
+  let _walletResult = null;
+  let _cashAbuse = null;
+  if (_fairness && !recallToPending) {
+    _applyFairnessStamps(job, _fairness, null);
+  }
+
   _CANCEL_IN_FLIGHT.add(_cancelKey);
 
   // Cancellation snapshot fields (for the payout pipeline downstream).
@@ -3374,6 +3788,7 @@ async function cancelBooking(opts) {
     job.BookingStatus   = _tk;
     job.TerminalKind    = _tk;
     job.JobCompleteTime = _nowIso;
+    _applyFairnessStamps(job, _fairness, _walletResult);
     _archiveClosedJob(job);
     jobStore.splice(idx, 1);
     saveJobStore();
@@ -3402,6 +3817,7 @@ async function cancelBooking(opts) {
     cancelStage: job.CancelStage,
     cancelledAt: job.CancelledAt,
     terminalKind: job.TerminalKind || job.BookingStatus,
+    ...(job.CancelFairness ? { CancelFairness: job.CancelFairness, walletCreditAmount: job.walletCreditAmount, refundStatus: job.refundStatus, CancelChargeAmount: job.CancelChargeAmount, CouncilCharged: false } : {}),
   };
 
   // §FIX-CMD/ver-fanout — mirror version into Firebase paths the driver app
@@ -3541,8 +3957,31 @@ async function cancelBooking(opts) {
         wrongPassenger: _wpNotify,
         booking: job,
       });
+    } else if (!recallToPending && _fairness && _cid) {
+      try {
+        _walletResult = await _creditWalletForCancel(job, _fairness, _cid);
+        if (_walletResult && _walletResult.ok) {
+          _applyFairnessStamps(job, _fairness, _walletResult);
+          saveClosedJobStore();
+        }
+      } catch (e) {
+        console.warn(`  [${source}] wallet credit failed #${bookingId}: ${e && e.message}`);
+      }
+      try {
+        _cashAbuse = await _recordCashCancelAbuse(job, _fairness);
+      } catch (e2) {
+        console.warn(`  [${source}] cash-abuse log failed #${bookingId}: ${e2 && e2.message}`);
+      }
+      if (_fairness.chargeTarget === 'account_bill' || _fairness.chargeTarget === 'acc_bill') {
+        if (_fairness.chargeAmount > 0) {
+          _scheduleUpsertCompletedJobFromDispatch(job, `${source}/cancel-account-bill`, { preferIncoming: true });
+        }
+      }
+      void _notifyPassengerCancelFairness(_cid, bookingId, job, _fairness, cancelledBy);
     }
 
+    const _phoneOut = _companyContactPhone(_cid);
+    void _resolveCompanyPhone(_cid);
     return {
       ok: true, idempotent: false,
       cancelStage: _cancelStage,
@@ -3554,7 +3993,17 @@ async function cancelBooking(opts) {
       driverFreed, driverState, queueNo,
       recalled: recallToPending,
       version: job.updateSeq,
-      booking: _publicBooking(job)
+      booking: _publicBooking(job),
+      fairness: _fairness || null,
+      companyPhone: _phoneOut,
+      supportEmail: cancelFairness.SUPPORT_EMAIL,
+      walletCredited: !!( _walletResult && _walletResult.ok),
+      walletCreditAmount: (_walletResult && _walletResult.ok) ? _fairness.creditAmount : (_fairness && _fairness.creditAmount) || 0,
+      cashCancelWarning: _cashAbuse && _cashAbuse.warning ? true : false,
+      cashCancelCardOnly: !!( _cashAbuse && _cashAbuse.cardOnly),
+      cashCancelJustWarned: !!( _cashAbuse && _cashAbuse.justWarned),
+      cashCancelJustCardOnly: !!( _cashAbuse && _cashAbuse.justCardOnly),
+      passengerMessage: _fairness ? _fairness.passengerMessage : '',
     };
   } finally {
     _CANCEL_IN_FLIGHT.delete(_cancelKey);
@@ -10051,6 +10500,10 @@ function _afterJobStatusChange(job, previousStatus, by, source) {
   const _drv = String(job.DriverId || '').trim();
   if (_cid && _drv && _drv !== '0' && _drv !== '-1') {
     _syncDriverJobCount(_cid, _drv, source || 'statusChange').catch(() => {});
+  }
+  const next = String(job.BookingStatus || '');
+  if (next === 'Assigned' || next === 'Picking') {
+    try { _stampCancelProgressOrigin(job); } catch (_e) { /* non-fatal */ }
   }
 }
 
@@ -19937,6 +20390,43 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── GET /api/cancel-quote — live fairness preview (same tiers as cancel) ───
+  if (urlPath === '/api/cancel-quote' && req.method === 'GET') {
+    const _qs = new URL(req.url, 'http://localhost').searchParams;
+    const _qBid = parseInt(_qs.get('bookingId') || _qs.get('jobId') || '0') || 0;
+    const _qCid = String(_qs.get('companyId') || _qs.get('cid') || '').trim();
+    const _qJob = jobStore.find((j) => j && j.Id === _qBid) || closedJobStore.find((j) => j && j.Id === _qBid) || null;
+    if (!_qBid) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId required' }));
+      return;
+    }
+    const _cidQ = _qCid || (_qJob ? String(_qJob.companyId || '') : '');
+    if (!_qJob) {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error_code: 'not_found', error: 'job not found', companyPhone: await _resolveCompanyPhone(_cidQ) }));
+      return;
+    }
+    const _drvQ = String(_qJob.DriverId || '').trim();
+    const _hasDrvQ = _drvQ && _drvQ !== '0' && _drvQ !== '-1' && _drvQ !== '-2';
+    const _fairQ = cancelFairness.fairnessFromJob(_qJob, {
+      status: _qJob.BookingStatus || _qJob.Status,
+      dispatcherTriggered: false,
+      hasDriver: !!_hasDrvQ,
+      progress: _cancelProgressForJob(_qJob),
+      forSelfServePreview: true,
+    });
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({
+      ok: true,
+      fairness: _fairQ,
+      companyPhone: await _resolveCompanyPhone(_cidQ || String(_qJob.companyId || '')),
+      supportEmail: cancelFairness.SUPPORT_EMAIL,
+      bookingTimeRules: cancelFairness.bookingTimeCancelRules(_fairQ.billableKind, _fairQ.isTM),
+    }));
+    return;
+  }
+
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
   // Body: { bookingId, companyId, reason?, cancelledBy, terminalKind?, noShow?, forceTerminal? }
   // Driver: pre-Arrived → recall; post-Arrived → terminal (No Show or Cancelled).
@@ -20133,7 +20623,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _ccStatus = _ccResult.ok ? 200
       : (_ccResult.error_code === 'not_found' ? 404
-      : (_ccResult.error_code === 'forbidden' ? 403 : 400));
+      : (_ccResult.error_code === 'forbidden' ? 403
+      : (_ccResult.error_code === 'self_serve_locked' ? 409 : 400)));
     console.log(`${_ccStatus}: POST /api/cancel bookingId=${_ccBooking} cid=${_ccCid} by=${_ccBy} -> ${JSON.stringify({ ok: _ccResult.ok, idempotent: _ccResult.idempotent, error_code: _ccResult.error_code })}`);
     res.writeHead(_ccStatus, JSON_HEADERS);
     res.end(JSON.stringify(_ccResult));
