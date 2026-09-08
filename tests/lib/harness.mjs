@@ -635,7 +635,7 @@ export async function createHarness(opts = {}) {
     async setFirebaseBooking(bookingId, patch, companyId = h.companyId, opts = {}) {
       const r = await post(
         '/dev/loadtest/set-firebase-booking',
-        { bookingId, patch, companyId, preserveTimestamps: !!opts.preserveTimestamps },
+        { bookingId, patch, companyId, preserveTimestamps: !!opts.preserveTimestamps, alsoPending: !!opts.alsoPending, writePendingjobs: !!opts.writePendingjobs },
         h.adminHeaders,
       );
       if (r.status !== 200 || !r.body?.ok) {

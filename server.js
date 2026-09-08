@@ -2376,6 +2376,32 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
 
 // Statuses where a driver may be holding this booking in their app UI.
 const _DRIVER_ATTACHED_STATUSES = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Busy', 'Queued']);
+/** Live trip after a real accept — leftover Offered/Pending Firebase must not clobber these. */
+const _POST_ACCEPT_LIVE_STATUSES = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Busy']);
+const _POOL_OFFER_STATUSES = new Set(['Pending', 'Offered', 'No One', 'Unreached']);
+
+function _isPostAcceptLiveStatus(st) {
+  return _POST_ACCEPT_LIVE_STATUSES.has(String(st || '').trim());
+}
+
+function _isPoolOfferOrPendingStatus(st) {
+  return _POOL_OFFER_STATUSES.has(String(st || '').trim());
+}
+
+function _jobHasAcceptStamp(job) {
+  if (!job || typeof job !== 'object') return false;
+  return String(job.DriverAcceptedAt || job.AcceptedAt || job.driverAcceptedAt || '').trim() !== '';
+}
+
+/** Stale pendingjobs/allbookings Offered must not silently reset a real accept. */
+function _fbMustNotDowngradeAccepted(jobSt, fbSt) {
+  const js = String(jobSt || '').trim();
+  const fb = String(fbSt || '').trim();
+  if (!fb) return false;
+  if (_isPostAcceptLiveStatus(js) && _isPoolOfferOrPendingStatus(fb)) return true;
+  if (js === 'Queued' && _isPoolOfferOrPendingStatus(fb)) return true;
+  return false;
+}
 
 function _normJobDriverId(raw) {
   if (raw === null || raw === undefined) return '';
@@ -7048,6 +7074,14 @@ function _liveTrace(event, fields, opts) {
 async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   opts = opts || {};
   if (!job || job.BookingStatus !== 'Offered') return false;
+  // Mid-offer 10s freshness is for a live popup, not a job already accepted.
+  if (_isPostAcceptLiveStatus(job.BookingStatus) || _jobHasAcceptStamp(job)) {
+    console.log(
+      `  [${sourceTag || 'stale-offer-heal'}] BLOCKED pool release after accept #${job.Id} ` +
+      `(status=${job.BookingStatus} acceptedAt=${job.DriverAcceptedAt || job.AcceptedAt || ''})`,
+    );
+    return false;
+  }
   const cid = String(job.companyId || '').trim();
   const bookingId = job.Id;
   const prevDriver = job.DriverId;
@@ -7062,6 +7096,9 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   job.offeredAt = null;
   job.DriverId = 0;
   job.VehicleId = 0;
+  delete job.DriverAcceptedAt;
+  delete job.AcceptedAt;
+  delete job.driverAcceptedAt;
   job.returnReason = opts.reason || 'Offer expired (stale offered job)';
   job.ReturnReason = job.returnReason;
   job.releasedAt = Date.now();
@@ -7169,6 +7206,33 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
     return 1;
   }
 
+  // Real accept already happened — 10s lastSeen is for a live offer popup only.
+  // Check the stamp before any Firebase I/O so a hung read cannot bounce Assigned.
+  if (_jobHasAcceptStamp(job)) {
+    const restored = 'Assigned';
+    if (job.BookingStatus !== restored) {
+      console.log(
+        `[${sourceTag}] skip mid-offer bounce — job #${job.Id} already accepted ` +
+        `(jobStore=${job.BookingStatus} acceptedAt=${job.DriverAcceptedAt || job.AcceptedAt || ''} → ${restored})`,
+      );
+      job.BookingStatus = restored;
+      job.Status = restored;
+      job.offeredAt = null;
+      job.returnReason = '';
+      job.ReturnReason = '';
+      saveJobStore();
+      _liveTrace('ACCEPT HOLDS mid-offer skip', {
+        sourceTag,
+        jobId: job.Id,
+        driverId: job.DriverId,
+        companyId: job.companyId,
+        restoredStatus: restored,
+        reason: 'accept-stamp',
+      });
+    }
+    return 0;
+  }
+
   if (tok) {
     const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
     const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
@@ -7179,6 +7243,31 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
         forceTrustTerminal: true,
       });
       return 1;
+    }
+    // Firebase already shows a live trip — leftover Offered jobStore is stale.
+    if (_isPostAcceptLiveStatus(fbSt)) {
+      const restored = String(fbSt);
+      if (job.BookingStatus !== restored) {
+        console.log(
+          `[${sourceTag}] skip mid-offer bounce — job #${job.Id} already accepted ` +
+          `(jobStore=${job.BookingStatus} firebase=${fbSt} → ${restored})`,
+        );
+        job.BookingStatus = restored;
+        job.Status = restored;
+        job.offeredAt = null;
+        job.returnReason = '';
+        job.ReturnReason = '';
+        saveJobStore();
+        _liveTrace('ACCEPT HOLDS mid-offer skip', {
+          sourceTag,
+          jobId: job.Id,
+          driverId: job.DriverId,
+          companyId: job.companyId,
+          restoredStatus: restored,
+          firebaseStatus: fbSt || '',
+        });
+      }
+      return 0;
     }
   }
 
@@ -7414,6 +7503,8 @@ function _zoneDriverRowForOfferedJob(job) {
 
 function _isDriverMidOfferNetworkStale(job, now) {
   if (!job || job.BookingStatus !== 'Offered') return false;
+  // 10s freshness is for a live offer popup — never after a real accept.
+  if (_isPostAcceptLiveStatus(job.BookingStatus) || _jobHasAcceptStamp(job)) return false;
   const zd = _zoneDriverRowForOfferedJob(job);
   if (!zd) return false;
   const at = now || Date.now();
@@ -17842,6 +17933,7 @@ const server = http.createServer(async (req, res) => {
         'manualOffer', 'vehicleType', 'Passengers', 'PassengersNo', 'BookingSource',
         'Source', 'CreatedBy', 'createdBy',
         'PickupPin', 'pickupPin', 'pickupVerifiedAt', 'imComingAt', 'noShowDeadlineAt',
+        'DriverAcceptedAt', 'AcceptedAt', 'driverAcceptedAt',
         // Payment / prepaid — needed to repro Card-only PaymentType pool_restore corruption
         'PaymentType', 'paymentType', 'PaymentMethod', 'paymentMethod',
         'paymentStatus', 'PaymentStatus', 'isPrePaid', 'isPrepaid', 'isFixedPrice',
@@ -17938,6 +18030,17 @@ const server = http.createServer(async (req, res) => {
       const parsed = body ? JSON.parse(body) : {};
       const bookingId = parseInt(parsed.bookingId || 0);
       const action = String(parsed.action || 'sync').toLowerCase();
+      if (action === 'pendingjobs-sync') {
+        const fromJob = jobStore.find((j) => j && j.Id === bookingId);
+        const cid = String(parsed.companyId || fromJob?.companyId || '').trim();
+        const syncReport = await _syncPendingjobsIntoJobStore({
+          includeCompanyIds: cid ? [cid] : [],
+          onlyBookingId: bookingId || 0,
+        });
+        res.writeHead(200, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, action, sync: syncReport || { ok: true } }));
+        return;
+      }
       const report = await repairBookingFirebaseSync({
         bookingId,
         action,
@@ -29375,11 +29478,17 @@ function _mergeFbIntoJob(job, fb) {
   if (fb.DropAddress || fb.dropoff || fb.dropAddress) job.DropAddress = fb.DropAddress || fb.dropoff || fb.dropAddress || job.DropAddress;
   if (fb.PhoneNo || fb.passengerPhone) job.PhoneNo = fb.PhoneNo || fb.passengerPhone || job.PhoneNo;
   if (fb.Name || fb.passengerName) job.Name = fb.Name || fb.passengerName || job.Name;
-  if (fb.DriverId || fb.driverId) job.DriverId = fb.DriverId || fb.driverId;
-  if (fb.VehicleNo || fb.vehicleId) job.VehicleNo = fb.VehicleNo || fb.vehicleId;
   const st = _firebaseStatusPreferTerminal(fb) || fb.BookingStatus || fb.Status || fb.status;
-  if (st && _HYDRATE_ACTIVE.has(String(st))) job.BookingStatus = String(st);
-  if (String(st || job.BookingStatus || '') === 'Offered') {
+  const incomingSt = st ? String(st) : '';
+  const protectAccepted = _fbMustNotDowngradeAccepted(job.BookingStatus, incomingSt);
+  if (!protectAccepted) {
+    if (fb.DriverId || fb.driverId) job.DriverId = fb.DriverId || fb.driverId;
+    if (fb.VehicleNo || fb.vehicleId) job.VehicleNo = fb.VehicleNo || fb.vehicleId;
+  }
+  if (incomingSt && _HYDRATE_ACTIVE.has(incomingSt) && !protectAccepted) {
+    job.BookingStatus = incomingSt;
+  }
+  if (!protectAccepted && incomingSt === 'Offered') {
     const offeredMs = _offeredAtMsFromFbRecord(fb);
     if (offeredMs) job.offeredAt = offeredMs;
   }
@@ -29736,12 +29845,20 @@ async function hydrateJobStoreFromFirebase() {
  * Periodic pendingjobs → jobStore ingest (website / passenger / Waiting).
  * Maps Waiting → Pending so auto-dispatch can offer without Angular console.
  */
-async function _syncPendingjobsIntoJobStore() {
+async function _syncPendingjobsIntoJobStore(opts) {
+  opts = opts || {};
+  const extraCids = (opts.includeCompanyIds || [])
+    .map((c) => String(c || '').trim())
+    .filter(Boolean);
+  const extraSet = new Set(extraCids);
+  const onlyBid = parseInt(opts.onlyBookingId || 0, 10) || 0;
   const tok = await getFirebaseServerToken().catch(() => null);
   if (!tok) return { ok: false, reason: 'no-token' };
   const auth = encodeURIComponent(tok);
   // Live tenants only — do NOT scan every historical cid from closedJobStore
   // (that starved the event loop with dozens of pendingjobs/*.json GETs).
+  // Test repair-booking may pass includeCompanyIds so bwtest leftovers can
+  // exercise the Assigned-vs-stale-Offered merge guard.
   const cids = [];
   try {
     const seen = new Set();
@@ -29749,9 +29866,16 @@ async function _syncPendingjobsIntoJobStore() {
       if (!r || !r.companyId) continue;
       if (!['approved', 'active', 'trial', 'grace'].includes(r.status)) continue;
       const cid = String(r.companyId);
-      if (!cid || seen.has(cid) || _isSyntheticLoadTestCompanyId(cid)) continue;
+      if (!cid || seen.has(cid)) continue;
+      if (_isSyntheticLoadTestCompanyId(cid) && !extraSet.has(cid)) continue;
       seen.add(cid);
       cids.push(cid);
+    }
+    for (const cid of extraCids) {
+      if (!seen.has(cid)) {
+        seen.add(cid);
+        cids.push(cid);
+      }
     }
   } catch (_) {}
   let added = 0;
@@ -29771,6 +29895,7 @@ async function _syncPendingjobsIntoJobStore() {
         if (!rec || typeof rec !== 'object') continue;
         const bid = parseInt(rec.BookingId || rec.bookingId || rec.Id || rec.jobId || key, 10) || 0;
         if (!bid) continue;
+        if (onlyBid && bid !== onlyBid) continue;
         if (_jobIsClosedInStore(bid)) continue;
         let st = _firebaseStatusPreferTerminal(rec);
         if (!st) continue;
