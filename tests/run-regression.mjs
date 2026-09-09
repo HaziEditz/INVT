@@ -77,6 +77,8 @@ async function main() {
     BW_SKIP_ZONE_SYNC_BEFORE_HEAL: '1',
     // Pickup-resolution No Show wait gate — disable wall-clock for regression timing.
     BW_NOSHOW_MIN_WAIT_MS: process.env.BW_NOSHOW_MIN_WAIT_MS || '0',
+    // Trajectory gate is proven in arrived-integrity unit tests; suite jobs skip minutes of GPS.
+    BW_SKIP_ARRIVED_TRAJECTORY: process.env.BW_SKIP_ARRIVED_TRAJECTORY || '1',
   };
 
   console.log('\n══════════════════════════════════════════════════════════');

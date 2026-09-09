@@ -99,6 +99,7 @@ const {
   NOSHOW_EXTENSION_MS,
 } = require('./lib/pickupResolution.cjs');
 const cancelFairness = require('./lib/cancelFairness.cjs');
+const arrivedIntegrity = require('./lib/arrivedIntegrity.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -2270,12 +2271,14 @@ async function executeJobCleanup(opts) {
     if (opts.markRecentlyCancelled) {
       _markRecentlyCancelled(bookingId);
     }
+    if (opts.consoleRefresh) {
+      // CRITICAL: Assigned/website/driver cancel must leave Assign tab immediately.
+      // Do not wait for Firebase pool DELETE before signalling the console (#9053 class).
+      await _signalDispatchConsoleRefresh(companyId, opts.consoleRefresh);
+    }
     const _meta = opts.allbookingsMeta && typeof opts.allbookingsMeta === 'object'
       ? opts.allbookingsMeta : null;
     await _bwClearJobFromFirebase(companyId, bookingId, vehicleId, driverId, terminalKind, _meta);
-    if (opts.consoleRefresh) {
-      await _signalDispatchConsoleRefresh(companyId, opts.consoleRefresh);
-    }
   };
 
   if (opts.bwClearSeparateTry) {
@@ -3417,6 +3420,98 @@ function _stampCancelProgressOrigin(job) {
   }
 }
 
+const _DRIVER_GPS_TRAIL = Object.create(null);
+const _DRIVER_ARRIVED_ABUSE = Object.create(null);
+
+function _recordDriverGpsSample(driverId, lat, lng, atMs) {
+  const id = String(driverId || '').trim();
+  const la = parseFloat(lat);
+  const ln = parseFloat(lng);
+  if (!id || !Number.isFinite(la) || !Number.isFinite(ln)) return;
+  if (Math.abs(la) < 0.0001 && Math.abs(ln) < 0.0001) return;
+  const at = Number(atMs) || Date.now();
+  if (!_DRIVER_GPS_TRAIL[id]) _DRIVER_GPS_TRAIL[id] = [];
+  const arr = _DRIVER_GPS_TRAIL[id];
+  const last = arr[arr.length - 1];
+  if (last && (at - last.at) < 1500 && Math.abs(last.lat - la) < 1e-6 && Math.abs(last.lng - ln) < 1e-6) return;
+  arr.push({ lat: la, lng: ln, at });
+  const cutoff = at - arrivedIntegrity.TRAJECTORY_WINDOW_MS - 60 * 1000;
+  _DRIVER_GPS_TRAIL[id] = arr.filter((s) => s.at >= cutoff).slice(-40);
+}
+
+function _evaluateArrivedIntegrity(job, driverId, source) {
+  const did = String(driverId || '').trim();
+  const cid = String((job && job.companyId) || '').trim();
+  const abuse = _DRIVER_ARRIVED_ABUSE[`${cid}:${did}`] || _DRIVER_ARRIVED_ABUSE[did];
+  const src = String(source || '');
+  // Dispatcher can still mark Arrived after a driver lock; drivers cannot.
+  const driverOrigin = !/dispatcher|CancelJobStatus/i.test(src)
+    && src !== 'Dispatch'
+    && src.indexOf('dispatch/') === -1;
+  if (abuse && abuse.arrivedLocked && driverOrigin) {
+    return {
+      ok: false,
+      error_code: 'arrived_locked',
+      error: 'Arrived is locked for review after repeated Arrived-then-cancel. Contact dispatch.',
+    };
+  }
+  if (arrivedIntegrity.arrivedTrajectorySkipped()) return { ok: true, skipped: true };
+  const pickup = _parseJobLatLng(job);
+  const samples = (_DRIVER_GPS_TRAIL[did] || []).slice();
+  const zd = ZONE_DRIVERS.find((d) => d && (String(d.driverid) === did || String(d.VehicleId) === did));
+  if (zd) {
+    const vid = String(zd.VehicleId || zd.vehiclenumber || '');
+    if (vid && _DRIVER_GPS_TRAIL[vid]) {
+      for (const s of _DRIVER_GPS_TRAIL[vid]) samples.push(s);
+    }
+    if (zd.lat != null && zd.lng != null) {
+      samples.push({ lat: parseFloat(zd.lat), lng: parseFloat(zd.lng), at: Date.now() });
+    }
+  }
+  try {
+    if (_ACTIVE_TRAIL_RECORDERS && typeof _ACTIVE_TRAIL_RECORDERS.forEach === 'function') {
+      _ACTIVE_TRAIL_RECORDERS.forEach((rec) => {
+        if (!rec || !Array.isArray(rec.samples)) return;
+        const sameJob = job && String(rec.jobId) === String(job.Id);
+        const sameVid = zd && (String(rec.vid) === String(zd.VehicleId) || String(rec.vid) === String(zd.vehiclenumber));
+        if (!sameJob && !sameVid) return;
+        for (const s of rec.samples) samples.push({ lat: s.lat, lng: s.lng, at: s.t || s.at });
+      });
+    }
+  } catch (_e) { /* trail map not initialized yet */ }
+  return arrivedIntegrity.evaluateApproachTrajectory({
+    samples,
+    pickup,
+    nowMs: Date.now(),
+  });
+}
+
+async function _recordDriverArrivedCancelAbuse(cid, driverId, bookingId) {
+  const did = String(driverId || '').trim();
+  const scid = String(cid || '').trim();
+  if (!did) return null;
+  const memKey = `${scid}:${did}`;
+  const next = arrivedIntegrity.recordArrivedCancelState(_DRIVER_ARRIVED_ABUSE[memKey], Date.now());
+  _DRIVER_ARRIVED_ABUSE[memKey] = next;
+  const zd = ZONE_DRIVERS.find((d) => d && (String(d.driverid) === did || String(d.VehicleId) === did));
+  if (zd) {
+    zd.arrivedCancelWarning = !!next.warning;
+    zd.arrivedLocked = !!next.arrivedLocked;
+  }
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'test') return next;
+  if (String(process.env.BW_SKIP_CANCEL_FAIRNESS_REMOTE_IO || '').trim() === '1') return next;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok || !scid) return next;
+    await firebaseDbSet(`driverArrivedAbuse/${scid}/${did}`, Object.assign({}, next, {
+      lastBookingId: bookingId || null,
+    }), tok);
+  } catch (e) {
+    console.warn(`  [arrived-abuse] persist failed driver=${did}: ${e && e.message}`);
+  }
+  return next;
+}
+
 async function _resolvePassengerWalletKey(job, tok) {
   const uid = _passengerUidFromRecord(job) || String(
     job.passengerUid || job.PassengerUid || job.passengerKey || job.PassengerKey || '',
@@ -3861,6 +3956,28 @@ async function cancelBooking(opts) {
     BookingStatus: job.BookingStatus
   }, !recallToPending);
 
+  // §FIX-CB early dispatchConsole refresh — Website/driver Assigned cancel must
+  // leave the Assign tab immediately, before Firebase DELETE (same class as #9053).
+  if (_cid) {
+    void _signalDispatchConsoleRefresh(_cid, recallToPending
+      ? {
+        bookingId,
+        action: 'recall',
+        status: job.BookingStatus,
+        previousStatus: _cancelStage,
+        driverId: '0',
+        updateSeq: job.updateSeq,
+        terminalAt: Date.now(),
+      }
+      : _terminalDispatchConsoleRefreshPayload(
+        bookingId,
+        job.BookingStatus === 'No Show' || job.BookingStatus === 'NoShow' ? 'No Show' : 'Cancelled',
+        _cancelStage,
+        _drvId,
+        job.updateSeq,
+      ));
+  }
+
   let driverFreed = false, driverState = 'unchanged', queueNo = null;
   try {
     const _resolvedCancel = _hasDriver ? _resolveDriverVehicleIds(_drvId, _vehId) : { driverId: '', vehicleId: '' };
@@ -3995,6 +4112,10 @@ async function cancelBooking(opts) {
         }
       }
       _queueCancelFairnessSideEffects(job, _fairness, _cid, cancelledBy, source);
+    }
+
+    if (!recallToPending && _cid && _drvId && arrivedIntegrity.isImmediateArrivedCancel(Object.assign({}, job, { BookingStatus: _cancelStage }), Date.now())) {
+      void _recordDriverArrivedCancelAbuse(_cid, _drvId, bookingId);
     }
 
     const _phoneOut = _companyContactPhone(_cid);
@@ -8847,6 +8968,19 @@ async function driverStageJob(opts) {
       currentStatus: prev,
       booking: _publicBooking(job),
     };
+  }
+
+  if (nextStatus === 'Arrived') {
+    const _arrGate = _evaluateArrivedIntegrity(job, driverId, source);
+    if (!_arrGate.ok) {
+      return {
+        ok: false,
+        error_code: _arrGate.error_code || 'arrived_trajectory_unproven',
+        error: _arrGate.error || 'Arrived is not allowed until GPS shows genuine travel to pickup',
+        currentStatus: prev,
+        booking: _publicBooking(job),
+      };
+    }
   }
 
   if (nextStatus === 'Arrived' && !job.ArrivedAt) {
@@ -14383,6 +14517,11 @@ function _trailPollOnce(rec) {
         if (mMoved < _TRAIL_MIN_MOVE_M && (now - last.t) < _TRAIL_MIN_TIME_MS) return;
       }
       rec.samples.push({ lat: lat, lng: lng, t: now, s: Number(cur.Speed || cur.VehicleSpeed) || 0 });
+      _recordDriverGpsSample(rec.vid, lat, lng, now);
+      const _zdTrail = ZONE_DRIVERS.find((d) => d && (
+        String(d.VehicleId) === String(rec.vid) || String(d.vehiclenumber) === String(rec.vid)
+      ));
+      if (_zdTrail && _zdTrail.driverid) _recordDriverGpsSample(_zdTrail.driverid, lat, lng, now);
       // Decimate if we're approaching the cap — keep every other sample, preserving
       // first/last. Maintains shape while halving memory.
       if (rec.samples.length > _TRAIL_MAX_SAMPLES) {
@@ -18344,6 +18483,7 @@ const server = http.createServer(async (req, res) => {
         if (parsed.zonename != null) zd.zonename = String(parsed.zonename);
         if (parsed.lat != null) zd.lat = parseFloat(parsed.lat);
         if (parsed.lng != null) zd.lng = parseFloat(parsed.lng);
+        if (parsed.lat != null && parsed.lng != null) _recordDriverGpsSample(did, parsed.lat, parsed.lng, parsed.at);
         if (parsed.vehiclestatus != null) zd.vehiclestatus = String(parsed.vehiclestatus);
         if (parsed.passforlink != null) zd.passforlink = String(parsed.passforlink);
         if (parsed.drivername != null) zd.drivername = String(parsed.drivername);
@@ -18358,6 +18498,28 @@ const server = http.createServer(async (req, res) => {
       const zd = matches[0];
       res.writeHead(200, JSON_HEADERS);
       res.end(JSON.stringify({ ok: true, driver: { driverid: zd.driverid, vehicletype: zd.vehicletype, seatCapacity: zd.seatCapacity || zd.seats, zoneid: zd.zoneid } }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/gps-trail' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const did = String(parsed.driverId || parsed.driverid || '').trim();
+      const samples = Array.isArray(parsed.samples) ? parsed.samples : [];
+      for (const s of samples) {
+        _recordDriverGpsSample(did, s.lat, s.lng, s.at);
+      }
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, driverId: did, count: (_DRIVER_GPS_TRAIL[did] || []).length }));
     } catch (e) {
       res.writeHead(500, JSON_HEADERS);
       res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
@@ -24673,6 +24835,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const drivername    = (param('drivername') || '').toString().trim();
         const lat           = (param('lat') || '').toString().trim();
         const lng           = (param('lng') || '').toString().trim();
+        if (driverId && lat && lng) _recordDriverGpsSample(driverId, lat, lng);
         const zonename      = (param('zonename') || '').toString().trim();
         const zonequeue     = parseInt(param('zonequeue') || '0') || 0;
         const zoneOnly      = param('zoneOnly') === 'true';
@@ -24977,13 +25140,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Arrived' &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
-              job.BookingStatus = 'Arrived';
-              if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
-              _stampDriverName(job);
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Arrived`);
-              void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
-                driverName: String(job.DriverName || job.driverName || ''),
-              });
+              const _arrGateDs = _evaluateArrivedIntegrity(job, driverId, 'DriverStatusChanged');
+              if (!_arrGateDs.ok) {
+                console.warn(`  [DriverStatusChanged] Arrived blocked #${job.Id}: ${_arrGateDs.error_code} ${_arrGateDs.error}`);
+              } else {
+                job.BookingStatus = 'Arrived';
+                if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+                _stampDriverName(job);
+                console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Arrived`);
+                void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
+                  driverName: String(job.DriverName || job.driverName || ''),
+                });
+              }
             } else if (newStatus === 'Active' && !activatedOne &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived')) {
               job.BookingStatus = 'Active';
@@ -25539,8 +25707,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // that doesn't already have one. Idempotent (no-op if already running),
         // and works regardless of which DriverStatusChanged path activated the
         // job (DP, DS, hail auto-activate). Runs once per ActiveJobsv3 poll.
-        active.forEach(function(_aj) {
-          var _vid = String(_aj.VehicleId || '').trim();
+        // Also start on Assigned/Arrived so Arrived trajectory has minutes of
+        // real GPS, without changing the ActiveJobsv3 response list.
+        companyJobs(jobStore).forEach(function(_aj) {
+          var _st = String(_aj.BookingStatus || '');
+          if (['Assigned', 'Picking', 'Arrived', 'Active'].indexOf(_st) === -1) return;
+          var _vid = String(_aj.VehicleId || _aj.VehicleNo || '').trim();
           if (_aj.Id && _vid && _vid !== '0' && sessionCompanyId) {
             _startTrailRecorder(sessionCompanyId, _vid, _aj.Id);
           }
@@ -26994,6 +27166,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const drivername    = (param('drivername') || '').toString().trim();
         const lat           = (param('lat') || '').toString().trim();
         const lng           = (param('lng') || '').toString().trim();
+        if (driverId && lat && lng) _recordDriverGpsSample(driverId, lat, lng);
         const zonenameDS    = (param('zonename') || '').toString().trim();
         const zonequeueDS   = parseInt(param('zonequeue') || '0') || 0;
         const zoneOnlyDS    = param('zoneOnly') === 'true';
@@ -27249,13 +27422,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Arrived' &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
-              job.BookingStatus = 'Arrived';
-              if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
-              _stampDriverNameDS(job);
-              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Arrived`);
-              void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
-                driverName: String(job.DriverName || job.driverName || ''),
-              });
+              const _arrGateDs2 = _evaluateArrivedIntegrity(job, driverId, 'DriverStatusChanged/DS');
+              if (!_arrGateDs2.ok) {
+                console.warn(`  [DriverStatusChanged/DS] Arrived blocked #${job.Id}: ${_arrGateDs2.error_code} ${_arrGateDs2.error}`);
+              } else {
+                job.BookingStatus = 'Arrived';
+                if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+                _stampDriverNameDS(job);
+                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Arrived`);
+                void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
+                  driverName: String(job.DriverName || job.driverName || ''),
+                });
+              }
             } else if (newStatus === 'Active' && !activatedOneDS &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived')) {
               job.BookingStatus = 'Active';
@@ -29005,6 +29183,10 @@ function _upsertZoneDriverFromFirebase(record) {
     }
     if (!existing.companyId && record.companyId) existing.companyId = record.companyId;
     existing._fbSyncedAt = Date.now();
+    if (record.lat && record.lng) {
+      _recordDriverGpsSample(record.driverid || existing.driverid, record.lat, record.lng);
+      if (record.VehicleId) _recordDriverGpsSample(record.VehicleId, record.lat, record.lng);
+    }
     return 'updated';
   }
   const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
@@ -29014,6 +29196,10 @@ function _upsertZoneDriverFromFirebase(record) {
     _fbSeeded: true,
     _fbSyncedAt: Date.now(),
   }));
+  if (record.lat && record.lng) {
+    _recordDriverGpsSample(record.driverid, record.lat, record.lng);
+    if (record.VehicleId) _recordDriverGpsSample(record.VehicleId, record.lat, record.lng);
+  }
   _firstDriverSeenAfterStart = true;
   return 'added';
 }
