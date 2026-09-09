@@ -3243,26 +3243,21 @@ async function _cancelOrphanFirebaseBooking(opts) {
   } catch (_) {}
 
   if (orphanFairness) {
-    try {
-      await _creditWalletForCancel(rec, orphanFairness, cid);
-    } catch (_we) { /* non-fatal */ }
-    try {
-      await _recordCashCancelAbuse(rec, orphanFairness);
-    } catch (_ce) { /* non-fatal */ }
     if (orphanFairness.chargeTarget === 'account_bill' || orphanFairness.chargeTarget === 'acc_bill') {
       if (orphanFairness.chargeAmount > 0) {
-        _scheduleUpsertCompletedJobFromDispatch(Object.assign({}, rec, {
-          BookingStatus: 'Cancelled',
-          TotalFare: orphanFairness.chargeAmount,
-          accountBillAmount: orphanFairness.chargeAmount,
-        }), `${source}/orphan-account-bill`, { preferIncoming: true });
+        rec.BookingStatus = 'Cancelled';
+        rec.TotalFare = orphanFairness.chargeAmount;
+        rec.accountBillAmount = orphanFairness.chargeAmount;
       }
     }
-    void _notifyPassengerCancelFairness(cid, bookingId, rec, orphanFairness, cancelledByKind || cancelledBy);
+    if (_cancelFairnessRemoteIoEnabled(rec, cid) && orphanFairness.billableKind === 'cash') {
+      void _recordCashCancelAbuse(rec, orphanFairness);
+    }
+    _queueCancelFairnessSideEffects(rec, orphanFairness, cid, cancelledByKind || cancelledBy, `${source}/orphan`);
   }
 
   const phoneOut = _companyContactPhone(cid);
-  void _resolveCompanyPhone(cid);
+  if (_cancelFairnessRemoteIoEnabled(rec, cid)) void _resolveCompanyPhone(cid);
   return {
     ok: true,
     orphanCleanup: true,
@@ -3310,11 +3305,45 @@ function _companyContactPhone(cid) {
   return '';
 }
 
+function _cancelFairnessRemoteIoEnabled(job, cid) {
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'test') return false;
+  if (String(process.env.BW_SKIP_CANCEL_FAIRNESS_REMOTE_IO || '') === '1') return false;
+  if (job && job._isLoadTest) return false;
+  const scid = String(cid || (job && job.companyId) || '').trim();
+  if (scid === 'bwtest') return false;
+  return true;
+}
+
+function _queueCancelFairnessSideEffects(job, fairness, cid, cancelledBy, source) {
+  if (!fairness || !_cancelFairnessRemoteIoEnabled(job, cid)) return;
+  const bid = job && job.Id;
+  const src = source || 'cancel-fairness';
+  void (async () => {
+    try {
+      const walletResult = await _creditWalletForCancel(job, fairness, cid);
+      if (walletResult && walletResult.ok) {
+        _applyFairnessStamps(job, fairness, walletResult);
+        saveClosedJobStore();
+      }
+    } catch (e) {
+      console.warn(`  [${src}] wallet credit failed #${bid}: ${e && e.message}`);
+    }
+    if (fairness.chargeTarget === 'account_bill' || fairness.chargeTarget === 'acc_bill') {
+      if (fairness.chargeAmount > 0) {
+        _scheduleUpsertCompletedJobFromDispatch(job, `${src}/cancel-account-bill`, { preferIncoming: true });
+      }
+    }
+    void _notifyPassengerCancelFairness(cid, bid, job, fairness, cancelledBy);
+  })();
+}
+
 async function _resolveCompanyPhone(cid) {
   const cached = _companyContactPhone(cid);
   if (cached) return cached;
   const scid = String(cid || '').trim();
   if (!scid) return '';
+  if (String(process.env.NODE_ENV || '').toLowerCase() === 'test') return '';
+  if (scid === 'bwtest') return '';
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return '';
@@ -3422,6 +3451,7 @@ async function _resolvePassengerWalletKey(job, tok) {
 }
 
 async function _creditWalletForCancel(job, fairness, cid) {
+  if (!_cancelFairnessRemoteIoEnabled(job, cid)) return { ok: false, skipped: true, reason: 'remote_io_disabled' };
   if (!fairness || !(fairness.creditAmount > 0)) return { ok: false, skipped: true };
   if (cancelFairness.isPrepaidKind(fairness.billableKind) && !_jobWasPrepaidPaid(job)) {
     return { ok: false, skipped: true, reason: 'not_prepaid_paid' };
@@ -3470,6 +3500,7 @@ async function _creditWalletForCancel(job, fairness, cid) {
 }
 
 async function _recordCashCancelAbuse(job, fairness) {
+  if (!_cancelFairnessRemoteIoEnabled(job, job && job.companyId)) return null;
   if (!fairness || fairness.billableKind !== 'cash') return null;
   const tok = await getFirebaseServerToken();
   if (!tok) return null;
@@ -3491,6 +3522,7 @@ async function _recordCashCancelAbuse(job, fairness) {
 
 async function _notifyPassengerCancelFairness(cid, bookingId, job, fairness, cancelledBy) {
   if (!cid || !bookingId || !fairness) return;
+  if (!_cancelFairnessRemoteIoEnabled(job, cid)) return;
   const isCash = fairness.billableKind === 'cash';
   const title = fairness.dispatcherTriggered ? 'Booking cancelled by dispatch' : (fairness.title || 'Booking cancelled');
   const body = String(fairness.passengerMessage || 'Your booking was cancelled.');
@@ -3704,8 +3736,6 @@ async function cancelBooking(opts) {
       outcome: _fairness.chargeTarget === 'card_retain' ? 'free' : _fairness.outcome,
     });
   }
-  let _walletResult = null;
-  let _cashAbuse = null;
   if (_fairness && !recallToPending) {
     _applyFairnessStamps(job, _fairness, null);
   }
@@ -3788,7 +3818,7 @@ async function cancelBooking(opts) {
     job.BookingStatus   = _tk;
     job.TerminalKind    = _tk;
     job.JobCompleteTime = _nowIso;
-    _applyFairnessStamps(job, _fairness, _walletResult);
+    _applyFairnessStamps(job, _fairness, null);
     _archiveClosedJob(job);
     jobStore.splice(idx, 1);
     saveJobStore();
@@ -3947,6 +3977,7 @@ async function cancelBooking(opts) {
       console.warn(`  [${source}] cancel firebase fanout failed: ${e && e.message}`);
     }
 
+    let _cashAbuse = null;
     if (recallToPending && _cid) {
       const _wpNotify =
         opts.wrongPassenger === true || /wrong\s*passenger|uninvited/i.test(reason);
@@ -3958,30 +3989,16 @@ async function cancelBooking(opts) {
         booking: job,
       });
     } else if (!recallToPending && _fairness && _cid) {
-      try {
-        _walletResult = await _creditWalletForCancel(job, _fairness, _cid);
-        if (_walletResult && _walletResult.ok) {
-          _applyFairnessStamps(job, _fairness, _walletResult);
-          saveClosedJobStore();
-        }
-      } catch (e) {
-        console.warn(`  [${source}] wallet credit failed #${bookingId}: ${e && e.message}`);
-      }
-      try {
-        _cashAbuse = await _recordCashCancelAbuse(job, _fairness);
-      } catch (e2) {
-        console.warn(`  [${source}] cash-abuse log failed #${bookingId}: ${e2 && e2.message}`);
-      }
-      if (_fairness.chargeTarget === 'account_bill' || _fairness.chargeTarget === 'acc_bill') {
-        if (_fairness.chargeAmount > 0) {
-          _scheduleUpsertCompletedJobFromDispatch(job, `${source}/cancel-account-bill`, { preferIncoming: true });
+      if (_cancelFairnessRemoteIoEnabled(job, _cid) && _fairness.billableKind === 'cash') {
+        try { _cashAbuse = await _recordCashCancelAbuse(job, _fairness); } catch (e2) {
+          console.warn(`  [${source}] cash-abuse log failed #${bookingId}: ${e2 && e2.message}`);
         }
       }
-      void _notifyPassengerCancelFairness(_cid, bookingId, job, _fairness, cancelledBy);
+      _queueCancelFairnessSideEffects(job, _fairness, _cid, cancelledBy, source);
     }
 
     const _phoneOut = _companyContactPhone(_cid);
-    void _resolveCompanyPhone(_cid);
+    if (_cancelFairnessRemoteIoEnabled(job, _cid)) void _resolveCompanyPhone(_cid);
     return {
       ok: true, idempotent: false,
       cancelStage: _cancelStage,
@@ -3997,9 +4014,9 @@ async function cancelBooking(opts) {
       fairness: _fairness || null,
       companyPhone: _phoneOut,
       supportEmail: cancelFairness.SUPPORT_EMAIL,
-      walletCredited: !!( _walletResult && _walletResult.ok),
-      walletCreditAmount: (_walletResult && _walletResult.ok) ? _fairness.creditAmount : (_fairness && _fairness.creditAmount) || 0,
-      cashCancelWarning: _cashAbuse && _cashAbuse.warning ? true : false,
+      walletCredited: !!( _fairness && _fairness.creditAmount > 0),
+      walletCreditAmount: (_fairness && _fairness.creditAmount) || 0,
+      cashCancelWarning: !!( _cashAbuse && _cashAbuse.warning),
       cashCancelCardOnly: !!( _cashAbuse && _cashAbuse.cardOnly),
       cashCancelJustWarned: !!( _cashAbuse && _cashAbuse.justWarned),
       cashCancelJustCardOnly: !!( _cashAbuse && _cashAbuse.justCardOnly),
