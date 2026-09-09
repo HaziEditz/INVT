@@ -54,6 +54,7 @@ import {
   coerceAllbookingsLiveStatus,
   pendingSnapshotWouldRegressQueue,
   pendingSnapshotWouldRegressAssigned,
+  isAuthoritativePoolRestorePending,
   purgeStalePendingForQueuedBookings,
   queueAwaitingMergeOpts,
   reinjectQueueAwaitingJobs,
@@ -1095,9 +1096,11 @@ async function refreshJobFromFirebaseCaches(
       }
       if (job) pendingRef.set(job.id, job);
     } else if (
+      !poolRestoreRefresh &&
       pendingSnapshotWouldRegressQueue(bookingId, pjRecord, {
         bookingsRef,
         abRec: abVal && typeof abVal === 'object' ? (abVal as Record<string, unknown>) : null,
+        action: refresh.action,
       })
     ) {
       if (import.meta.env.DEV) {
@@ -1288,7 +1291,21 @@ export function useJobs(companyId: string | null) {
 
       const bookingsQueued = bookingsRef.current.get(jobId);
       const storeQueued = useJobStore.getState().jobs.find((j) => j.id === jobId);
+      const restoreHint = {
+        driverId: job.driverId,
+        updateSeq: seqFromFirebaseRecord(rec) ?? job.updateSeq ?? 0,
+        liveSeq: Math.max(storeQueued?.updateSeq ?? 0, bookingsQueued?.updateSeq ?? 0),
+        returnReason: String(job.returnReason || rec.returnReason || rec.ReturnReason || ''),
+      };
+      const authenticPoolRestore = isAuthoritativePoolRestorePending(
+        normalizeJobStatus(job.status),
+        restoreHint,
+      );
+      if (authenticPoolRestore) {
+        clearQueueAwaitingAllbookings(jobId);
+      }
       if (
+        !authenticPoolRestore &&
         normalizeJobStatus(job.status) !== 'Queued' &&
         (normalizeJobStatus(bookingsQueued?.status) === 'Queued' ||
           normalizeJobStatus(storeQueued?.status) === 'Queued')
@@ -1305,7 +1322,7 @@ export function useJobs(companyId: string | null) {
         return;
       }
 
-      if (isQueueAwaitingAllbookings(jobId)) {
+      if (isQueueAwaitingAllbookings(jobId) && !authenticPoolRestore) {
         pendingRef.current.delete(jobId);
         const forced = mergeJobUpdate(job, { status: 'Queued' }, { forceStatus: 'Queued' });
         bookingsRef.current.set(jobId, forced);
@@ -1354,7 +1371,8 @@ export function useJobs(companyId: string | null) {
       if (liveQueued && pendingSt !== 'Queued') {
         if (
           isQueueForwardLifecycleStatus(pendingSt) ||
-          TERMINAL_BOOKING_STATUSES.has(pendingSt)
+          TERMINAL_BOOKING_STATUSES.has(pendingSt) ||
+          authenticPoolRestore
         ) {
           clearQueueAwaitingAllbookings(jobId);
         } else {
@@ -1366,8 +1384,9 @@ export function useJobs(companyId: string | null) {
       const liveAssigned =
         normalizeJobStatus(booking?.status) === 'Assigned' ||
         normalizeJobStatus(storeJob?.status) === 'Assigned';
-      // Block pool/edit demotions only — allow Picking/Arrived/Active promotions.
-      if (pendingSnapshotWouldRegressAssigned(liveAssigned, pendingSt)) {
+      // Block pool/edit demotions only — allow Picking/Arrived/Active promotions
+      // and genuine recall/decline Pending (newer seq or Recalled returnReason).
+      if (pendingSnapshotWouldRegressAssigned(liveAssigned, pendingSt, restoreHint)) {
         pendingRef.current.delete(jobId);
         return;
       }

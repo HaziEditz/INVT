@@ -460,6 +460,17 @@ test('authority: mergeJobStatus Pending beats lagging Offered after decline/time
   assert.equal(mergeJobStatus('Pending', 'Offered', 5, 6), 'Offered');
 });
 
+test('authority: mergeJobStatus Pending beats lagging Assigned/Queued after recall', () => {
+  assert.equal(mergeJobStatus('Pending', 'Assigned', 6, 5), 'Pending');
+  assert.equal(mergeJobStatus('Pending', 'Assigned', 6, 6), 'Pending');
+  assert.equal(mergeJobStatus('Pending', 'Queued', 6, 5), 'Pending');
+  assert.equal(mergeJobStatus('Pending', 'Queued', 6, 6), 'Pending');
+  assert.equal(mergeJobStatus('Pending', 'Picking', 6, 5), 'Pending');
+  // Accept / re-queue with a newer seq still wins.
+  assert.equal(mergeJobStatus('Pending', 'Assigned', 5, 6), 'Assigned');
+  assert.equal(mergeJobStatus('Pending', 'Queued', 5, 7), 'Queued');
+});
+
 // ─── Allbookings queue helpers ───────────────────────────────────────────────
 
 test('authority: allbookingsRecordIsQueued and coerceAllbookingsLiveStatus', () => {

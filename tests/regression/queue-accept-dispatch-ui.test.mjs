@@ -204,6 +204,48 @@ test('dispatch UI: confirmed allbookings Queued beats stale pendingjobs Pending 
   assert.equal(pending.has(bookingId), false);
 });
 
+test('dispatch UI: genuine recall Pending is not a queue regression vs lagging Queued', () => {
+  const bookingId = 8692609098;
+  const queuedJob = { id: bookingId, status: 'Queued', driverId: '9001', updateSeq: 5 };
+  const bookings = new Map([[bookingId, queuedJob]]);
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(
+      bookingId,
+      {
+        BookingStatus: 'Pending',
+        DriverId: '0',
+        updateSeq: 6,
+        returnReason: 'Recalled by Driver',
+      },
+      { bookingsRef: bookings, abRec: { BookingStatus: 'Queued', DriverId: '9001' } },
+    ),
+    false,
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(
+      bookingId,
+      { BookingStatus: 'Pending', DriverId: '0', updateSeq: 3 },
+      { bookingsRef: bookings, abRec: { BookingStatus: 'Queued', DriverId: '9001' } },
+    ),
+    true,
+    'older Pending without recall evidence must still be ignored',
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(
+      bookingId,
+      {
+        BookingStatus: 'Pending',
+        DriverId: '0',
+        updateSeq: 3,
+        returnReason: 'Recalled by Driver',
+      },
+      { bookingsRef: bookings, abRec: { BookingStatus: 'Queued', DriverId: '9001', updateSeq: 8 } },
+    ),
+    true,
+    'older Recalled pendingjobs must not beat a newer Queued row',
+  );
+});
+
 test('dispatch UI: lowercase queued status routes to Queue tab', () => {
   assert.equal(jobTabForStatus({ id: 1, status: 'queued', driverId: '9001' }), 'queue');
   assert.equal(jobTabForStatus({ id: 2, status: 'QUEUED', driverId: '9001' }), 'queue');

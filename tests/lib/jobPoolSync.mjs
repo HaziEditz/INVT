@@ -228,17 +228,31 @@ export function allbookingsRecordIsQueued(rec) {
 
 export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, storeJobs = []) {
   for (const id of [...pendingRef.keys()]) {
+    const pending = pendingRef.get(id);
+    const booking = bookingsRef.get(id);
+    const store = storeJobs.find((j) => j.id === id);
+    const liveSeq = Math.max(booking?.updateSeq ?? 0, store?.updateSeq ?? 0);
+    if (
+      pending &&
+      isAuthoritativePoolRestorePending(pending.status, {
+        driverId: pending.driverId,
+        updateSeq: pending.updateSeq ?? 0,
+        liveSeq,
+        returnReason: pending.returnReason,
+      })
+    ) {
+      if (isQueueAwaitingAllbookings(id)) clearQueueAwaitingAllbookings(id);
+      continue;
+    }
     if (isQueueAwaitingAllbookings(id)) {
       pendingRef.delete(id);
       continue;
     }
-    const booking = bookingsRef.get(id);
     const bookingSt = booking ? normalizeJobStatus(booking.status) : '';
     if (booking && bookingSt === 'Queued') {
       pendingRef.delete(id);
       continue;
     }
-    const pending = pendingRef.get(id);
     const pendingSt = pending ? normalizeJobStatus(pending.status) : '';
     if (
       pendingSt === 'Queued' &&
@@ -250,7 +264,6 @@ export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, stor
     }
     // Keep Queued pendingjobs mirrors until bookingsRef confirms (Queue tab gap).
     if (pendingSt === 'Queued') continue;
-    const store = storeJobs.find((j) => j.id === id);
     if (store && normalizeJobStatus(store.status) === 'Queued') {
       pendingRef.delete(id);
     }
@@ -260,6 +273,23 @@ export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, stor
 export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
   const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''));
   if (pjSt === 'Queued') return false;
+
+  const liveQueuedJob = ctx?.bookingsRef?.get(bookingId);
+  const liveSeq =
+    ctx?.liveSeq ??
+    liveQueuedJob?.updateSeq ??
+    0;
+  if (
+    isAuthoritativePoolRestorePending(pjSt, {
+      driverId: String(pjVal.DriverId ?? pjVal.driverId ?? ''),
+      updateSeq: Number(pjVal.updateSeq ?? pjVal._seq ?? pjVal.version) || 0,
+      liveSeq,
+      returnReason: String(pjVal.returnReason ?? pjVal.ReturnReason ?? ''),
+      action: ctx?.action,
+    })
+  ) {
+    return false;
+  }
 
   const bookingsQueued =
     !!ctx?.bookingsRef &&
@@ -481,11 +511,40 @@ export const ASSIGNED_FORWARD_PENDING_STATUSES = new Set([
   'Busy',
 ]);
 
-export function pendingSnapshotWouldRegressAssigned(liveAssigned, pendingStatus) {
+const POOL_RESTORE_PENDING_STATUSES = new Set(['Pending', 'No One', 'Scheduled']);
+const POOL_RESTORE_HINT_ACTIONS = new Set([
+  'recall',
+  'timeout',
+  'decline',
+  'status',
+  'scheduled_release',
+  'network_unreachable',
+  'heal_network_reason',
+  'same_driver_cooldown',
+]);
+
+export function isAuthoritativePoolRestorePending(pendingStatus, hint) {
+  const pendingSt = normalizeJobStatus(pendingStatus);
+  if (!POOL_RESTORE_PENDING_STATUSES.has(pendingSt)) return false;
+  if (!hint) return false;
+  const incomingSeq = Number(hint.updateSeq) || 0;
+  const liveSeq = Number(hint.liveSeq) || 0;
+  if (liveSeq > 0 && incomingSeq > 0 && incomingSeq < liveSeq) return false;
+  const action = String(hint.action || '').trim().toLowerCase();
+  if (POOL_RESTORE_HINT_ACTIONS.has(action)) return true;
+  const reason = String(hint.returnReason || '');
+  if (/recall|declined by driver|offer timeout|uninvited|wrong\s*passenger/i.test(reason)) {
+    return true;
+  }
+  return isUnassignedDriverId(hint.driverId) && incomingSeq > liveSeq;
+}
+
+export function pendingSnapshotWouldRegressAssigned(liveAssigned, pendingStatus, restore) {
   if (!liveAssigned) return false;
   const pendingSt = normalizeJobStatus(pendingStatus);
   if (ASSIGNED_FORWARD_PENDING_STATUSES.has(pendingSt)) return false;
   if (TERMINAL.has(pendingSt)) return false;
+  if (isAuthoritativePoolRestorePending(pendingSt, restore)) return false;
   return true;
 }
 

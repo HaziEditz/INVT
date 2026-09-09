@@ -70,3 +70,46 @@ test('Assigned pending guard allows forward stages, blocks pool demotion', () =>
   assert.equal(pendingSnapshotWouldRegressAssigned(true, 'Queued'), true);
   assert.equal(pendingSnapshotWouldRegressAssigned(false, 'Pending'), false);
 });
+
+test('Assigned pending guard accepts genuine recall Pending, still blocks stale older Pending', () => {
+  assert.equal(
+    pendingSnapshotWouldRegressAssigned(true, 'Pending', { action: 'recall' }),
+    false,
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressAssigned(true, 'Pending', {
+      driverId: '0',
+      updateSeq: 6,
+      liveSeq: 5,
+    }),
+    false,
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressAssigned(true, 'Pending', {
+      driverId: '0',
+      updateSeq: 5,
+      liveSeq: 5,
+      returnReason: 'Recalled by Driver',
+    }),
+    false,
+  );
+  // Older Pending during accept race — still a regression.
+  assert.equal(
+    pendingSnapshotWouldRegressAssigned(true, 'Pending', {
+      driverId: '0',
+      updateSeq: 4,
+      liveSeq: 6,
+    }),
+    true,
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressAssigned(true, 'Pending', {
+      driverId: '0',
+      updateSeq: 4,
+      liveSeq: 6,
+      returnReason: 'Recalled by Driver',
+    }),
+    true,
+    'older Recalled pendingjobs must not demote a newer Assigned accept',
+  );
+});

@@ -3965,6 +3965,13 @@ async function cancelBooking(opts) {
     delete job.imComingAt;
     delete job.noShowWaitExtended;
     delete job.noShowDeadlineAt;
+    // Same 30s same-driver cooldown as decline/timeout — THIS recalled job only.
+    // Fields live on this jobStore row; other Pending jobs are unaffected.
+    const _recallCooldownDrv = String(_drvId || job.lastOfferDriverId || '').trim();
+    if (_recallCooldownDrv && _recallCooldownDrv !== '0' && _recallCooldownDrv !== '-1' && _recallCooldownDrv !== '-2') {
+      job._skipReleaseCooldownOnce = true;
+      _stampSameDriverOfferCooldown(job, _recallCooldownDrv, OFFER_SAME_DRIVER_COOLDOWN_MS);
+    }
     saveJobStore();
     console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${_restoredPool}+releasedAt (recall by ${cancelledByDisplay}, prevDriver=${_drvId || 'none'})`);
   } else {
@@ -8240,7 +8247,7 @@ function _isDriverBlockedFromNetworkRedispatch(job, driverId, now) {
   return until > (now || Date.now());
 }
 
-/** Block the driver who just declined / timed out / network-bounced from instant re-offer. */
+/** Block the driver who just declined / timed out / recalled / network-bounced from instant re-offer of THIS job. */
 function _stampSameDriverOfferCooldown(job, driverId, ms) {
   const did = String(driverId || '').trim();
   if (!job || !did || did === '0') return;
@@ -26497,6 +26504,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           _rqJob.queuedAt      = null;
           _rqJob.returnReason  = _rqDriverId ? `Recalled by ${_rqDriverId}` : 'Recalled by Driver';
           delete _rqJob._origStatus;
+          if (_prevDrvRecall && _prevDrvRecall !== '0' && _prevDrvRecall !== '-1' && _prevDrvRecall !== '-2') {
+            _rqJob._skipReleaseCooldownOnce = true;
+            _stampSameDriverOfferCooldown(_rqJob, _prevDrvRecall, OFFER_SAME_DRIVER_COOLDOWN_MS);
+          }
+          _bumpJobUpdateSeq(_rqJob, 'dispatcher');
           saveJobStore();
           const _rqCid = String(_rqJob.companyId || sessionCompanyId || '');
           const _rqDrv = String(_rqDriverId || _prevDrvRecall).trim();
@@ -26518,7 +26530,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   bookingId: _rqBookingId,
                   action: 'recall',
                   status: _restoreSt,
-                  driverId: _resolvedRq.driverId || _rqDrv || '0',
+                  driverId: '0',
                 },
                 dispatchRefresh: {
                   job: _rqJob,
@@ -30993,7 +31005,7 @@ async function _serverAutoDispatchTick() {
           });
           if (companyReport.action !== 'offered') companyReport.action = 'same_driver_cooldown';
           console.log(
-            `[server-auto-dispatch] job #${job.Id} hold UA — same-driver cooldown after decline/timeout/network; trying next Pending`,
+            `[server-auto-dispatch] job #${job.Id} hold UA — same-driver cooldown after decline/timeout/recall/network; trying next Pending`,
           );
           // Reinforce U-A visibility + Declined/Timeout label while THIS driver is blocked
           // (other Available drivers are offered above; sole cooldown must not look Offered).

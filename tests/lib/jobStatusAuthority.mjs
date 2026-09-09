@@ -319,8 +319,9 @@ export function mergeJobStatus(existing, incoming, existingSeq, incomingSeq) {
     return ex;
   }
   if ((inc === 'No One' || inc === 'Pending') && incomingSeq >= existingSeq) return inc;
-  // Decline/timeout: Pending with equal/newer seq must beat lagging Offered (#9062).
-  if (POOL.includes(ex) && inc === 'Offered' && incomingSeq <= existingSeq) return ex;
+  // Pool restore (decline/timeout/recall): Pending must beat lagging live rows.
+  const LAG_LIVE_OVER_POOL = ['Offered', 'Assigned', 'Picking', 'Arrived', 'Queued'];
+  if (POOL.includes(ex) && LAG_LIVE_OVER_POOL.includes(inc) && incomingSeq <= existingSeq) return ex;
   const QUEUED_PROMOTE = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];
   if (ex === 'Queued' && POOL.includes(inc)) return ex;
   if (ex === 'Queued' && QUEUED_PROMOTE.includes(inc)) return inc;

@@ -117,15 +117,62 @@ export const ASSIGNED_FORWARD_PENDING_STATUSES = new Set<string>([
   'Busy',
 ]);
 
+const POOL_RESTORE_PENDING_STATUSES = new Set(['Pending', 'No One', 'Scheduled']);
+const POOL_RESTORE_HINT_ACTIONS = new Set([
+  'recall',
+  'timeout',
+  'decline',
+  'status',
+  'scheduled_release',
+  'network_unreachable',
+  'heal_network_reason',
+  'same_driver_cooldown',
+]);
+
+export type PoolRestoreHint = {
+  driverId?: string | null;
+  updateSeq?: number;
+  liveSeq?: number;
+  returnReason?: string;
+  action?: string;
+};
+
+/**
+ * Genuine pool restore (recall / decline / timeout) vs a stale Pending snapshot
+ * during an accept/queue race. Newer unassigned Pending, or an explicit recall
+ * signal, must land on U-A. Older Pending without that evidence stays blocked.
+ */
+export function isAuthoritativePoolRestorePending(
+  pendingStatus: string,
+  hint?: PoolRestoreHint,
+): boolean {
+  const pendingSt = normalizeJobStatus(pendingStatus);
+  if (!POOL_RESTORE_PENDING_STATUSES.has(pendingSt)) return false;
+  if (!hint) return false;
+  const incomingSeq = Number(hint.updateSeq) || 0;
+  const liveSeq = Number(hint.liveSeq) || 0;
+  // Stale Recalled/Declined pendingjobs must not beat a newer Queued/Assigned row.
+  if (liveSeq > 0 && incomingSeq > 0 && incomingSeq < liveSeq) return false;
+  const action = String(hint.action || '').trim().toLowerCase();
+  if (POOL_RESTORE_HINT_ACTIONS.has(action)) return true;
+  const reason = String(hint.returnReason || '');
+  if (/recall|declined by driver|offer timeout|uninvited|wrong\s*passenger/i.test(reason)) {
+    return true;
+  }
+  return isUnassignedDriverId(hint.driverId) && incomingSeq > liveSeq;
+}
+
 /** True when a pendingjobs snapshot would wrongly demote a live Assigned job. */
 export function pendingSnapshotWouldRegressAssigned(
   liveAssigned: boolean,
   pendingStatus: string,
+  restore?: PoolRestoreHint,
 ): boolean {
   if (!liveAssigned) return false;
   const pendingSt = normalizeJobStatus(pendingStatus);
   if (ASSIGNED_FORWARD_PENDING_STATUSES.has(pendingSt)) return false;
   if (TERMINAL_BOOKING_STATUSES.has(pendingSt)) return false;
+  if (isAuthoritativePoolRestorePending(pendingSt, restore)) return false;
   return true;
 }
 
@@ -381,6 +428,8 @@ export function queueAwaitingMergeOpts(
 export type PendingQueueRegressCtx = {
   bookingsRef?: Map<number, Job>;
   abRec?: Record<string, unknown> | null;
+  action?: string;
+  liveSeq?: number;
 };
 
 /**
@@ -391,23 +440,42 @@ export type PendingQueueRegressCtx = {
  * DO drop the Queued mirror once bookings has advanced past Queued — otherwise
  * Assign/Active never win the merge.
  */
+function pendingLooksLikePoolRestore(
+  pending: Job | undefined,
+  liveSeq: number,
+): boolean {
+  if (!pending) return false;
+  return isAuthoritativePoolRestorePending(pending.status, {
+    driverId: pending.driverId,
+    updateSeq: pending.updateSeq ?? 0,
+    liveSeq,
+    returnReason: pending.returnReason,
+  });
+}
+
 export function purgeStalePendingForQueuedBookings(
   pendingRef: Map<number, Job>,
   bookingsRef: Map<number, Job>,
   storeJobs: Job[] = [],
 ): void {
   for (const id of [...pendingRef.keys()]) {
+    const pending = pendingRef.get(id);
+    const booking = bookingsRef.get(id);
+    const store = storeJobs.find((j) => j.id === id);
+    const liveSeq = Math.max(booking?.updateSeq ?? 0, store?.updateSeq ?? 0);
+    if (pendingLooksLikePoolRestore(pending, liveSeq)) {
+      if (isQueueAwaitingAllbookings(id)) clearQueueAwaitingAllbookings(id);
+      continue;
+    }
     if (isQueueAwaitingAllbookings(id)) {
       pendingRef.delete(id);
       continue;
     }
-    const booking = bookingsRef.get(id);
     const bookingSt = booking ? normalizeJobStatus(booking.status) : '';
     if (booking && bookingSt === 'Queued') {
       pendingRef.delete(id);
       continue;
     }
-    const pending = pendingRef.get(id);
     const pendingSt = pending ? normalizeJobStatus(pending.status) : '';
     // Bookings already past Queued — Queued pending mirror is stale.
     if (
@@ -420,7 +488,6 @@ export function purgeStalePendingForQueuedBookings(
     }
     // Keep intentional Queued mirrors until bookingsRef confirms or advances.
     if (pendingSt === 'Queued') continue;
-    const store = storeJobs.find((j) => j.id === id);
     if (store && normalizeJobStatus(store.status) === 'Queued') {
       // Store is Queued but pending is stale pool shape (Pending/etc) — drop it.
       pendingRef.delete(id);
@@ -438,6 +505,23 @@ export function pendingSnapshotWouldRegressQueue(
     String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''),
   );
   if (pjSt === 'Queued') return false;
+
+  const liveQueuedJob = ctx?.bookingsRef?.get(bookingId);
+  const liveSeq =
+    ctx?.liveSeq ??
+    liveQueuedJob?.updateSeq ??
+    seqFromRecord(ctx?.abRec ?? null);
+  if (
+    isAuthoritativePoolRestorePending(pjSt, {
+      driverId: String(pjVal.DriverId ?? pjVal.driverId ?? ''),
+      updateSeq: seqFromRecord(pjVal),
+      liveSeq,
+      returnReason: String(pjVal.returnReason ?? pjVal.ReturnReason ?? ''),
+      action: ctx?.action,
+    })
+  ) {
+    return false;
+  }
 
   const bookingsQueued =
     !!ctx?.bookingsRef &&
