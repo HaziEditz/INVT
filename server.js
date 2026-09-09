@@ -3439,21 +3439,12 @@ function _recordDriverGpsSample(driverId, lat, lng, atMs) {
   _DRIVER_GPS_TRAIL[id] = arr.filter((s) => s.at >= cutoff).slice(-40);
 }
 
-function _evaluateArrivedIntegrity(job, driverId, source) {
+function _evaluateArrivedIntegrity(job, driverId, source, extra) {
+  void source;
   const did = String(driverId || '').trim();
-  const cid = String((job && job.companyId) || '').trim();
-  const abuse = _DRIVER_ARRIVED_ABUSE[`${cid}:${did}`] || _DRIVER_ARRIVED_ABUSE[did];
-  const src = String(source || '');
-  // Dispatcher can still mark Arrived after a driver lock; drivers cannot.
-  const driverOrigin = !/dispatcher|CancelJobStatus/i.test(src)
-    && src !== 'Dispatch'
-    && src.indexOf('dispatch/') === -1;
-  if (abuse && abuse.arrivedLocked && driverOrigin) {
-    return {
-      ok: false,
-      error_code: 'arrived_locked',
-      error: 'Arrived is locked for review after repeated Arrived-then-cancel. Contact dispatch.',
-    };
+  extra = extra && typeof extra === 'object' ? extra : {};
+  if (extra.lat != null && extra.lng != null) {
+    _recordDriverGpsSample(did, extra.lat, extra.lng, extra.at);
   }
   if (arrivedIntegrity.arrivedTrajectorySkipped()) return { ok: true, skipped: true };
   const pickup = _parseJobLatLng(job);
@@ -3465,7 +3456,12 @@ function _evaluateArrivedIntegrity(job, driverId, source) {
       for (const s of _DRIVER_GPS_TRAIL[vid]) samples.push(s);
     }
     if (zd.lat != null && zd.lng != null) {
-      samples.push({ lat: parseFloat(zd.lat), lng: parseFloat(zd.lng), at: Date.now() });
+      const lastSeen = Number(zd.lastSeen) || 0;
+      samples.push({
+        lat: parseFloat(zd.lat),
+        lng: parseFloat(zd.lng),
+        at: lastSeen > 0 ? lastSeen : Date.now() - 120000,
+      });
     }
   }
   try {
@@ -3486,17 +3482,95 @@ function _evaluateArrivedIntegrity(job, driverId, source) {
   });
 }
 
-async function _recordDriverArrivedCancelAbuse(cid, driverId, bookingId) {
+function _stampArrivedIntegrityFlags(job, gate) {
+  if (!job || !gate || gate.skipped) return;
+  if (gate.gpsUnproven) {
+    job.ArrivedGpsUnproven = true;
+    job.ArrivedSnapshotOnly = false;
+    job.ArrivedTrajectoryOk = false;
+    return;
+  }
+  if (gate.atCurb && gate.approaching) {
+    job.ArrivedTrajectoryOk = true;
+    job.ArrivedGpsUnproven = false;
+    job.ArrivedSnapshotOnly = false;
+    return;
+  }
+  job.ArrivedSnapshotOnly = true;
+  job.ArrivedGpsUnproven = false;
+  job.ArrivedTrajectoryOk = false;
+}
+
+async function _suspendDriverForArrivedAbuse(cid, driverId) {
+  const did = String(driverId || '').trim();
+  const scid = String(cid || '').trim();
+  if (!did) return;
+  const zd = ZONE_DRIVERS.find((d) => d && (String(d.driverid) === did || String(d.VehicleId) === did));
+  const vehicleId = String((zd && (zd.VehicleId || zd.vehiclenumber)) || did);
+  const already = SUSPENDED_DRIVERS.find((s) =>
+    String(s.driverId) === did || String(s.vehicleId) === vehicleId,
+  );
+  if (already) return;
+  const guard = _evaluateDriverAdminJobGuard(did, vehicleId, scid, 'suspend');
+  if (!guard.canProceed) {
+    console.warn(`  [arrived-abuse] suspend deferred driver=${did}: ${guard.message}`);
+    return;
+  }
+  const _prevIdx = SUSPENDED_DRIVERS.findIndex((s) =>
+    String(s.driverId) === did || String(s.vehicleId) === vehicleId,
+  );
+  if (_prevIdx !== -1) SUSPENDED_DRIVERS.splice(_prevIdx, 1);
+  SUSPENDED_DRIVERS.push({
+    driverId: did,
+    vehicleId,
+    drivername: (zd && zd.drivername) || '',
+    vehiclenumber: (zd && zd.vehiclenumber) || vehicleId,
+    vehicletype: (zd && zd.vehicletype) || '',
+    zonename: (zd && zd.zonename) || '',
+    suspendedAt: new Date().toISOString(),
+    suspendedUntil: null,
+    reason: 'arrived_cancel_abuse',
+    companyId: scid,
+  });
+  saveSuspendedDrivers();
+  for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+    const d = ZONE_DRIVERS[i];
+    if (scid && d.companyId && String(d.companyId) !== String(scid)) continue;
+    if (String(d.driverid) === did || String(d.VehicleId) === did || String(d.VehicleId) === vehicleId) {
+      ZONE_DRIVERS.splice(i, 1);
+    }
+  }
+  const msg = `Your account is suspended after repeated Arrived-then-cancel without genuine GPS travel to pickup. Contact admin/support at ${cancelFairness.SUPPORT_EMAIL} to be reinstated.`;
+  await _forceDriverKickOrSuspend({
+    cid: scid,
+    driverId: did,
+    vehicleId,
+    vehicleNo: (zd && zd.vehiclenumber) || vehicleId,
+    type: 'suspended',
+    message: msg,
+    suspendedUntil: null,
+    source: 'arrived-cancel-abuse',
+  });
+  console.log(`  [arrived-abuse] suspended driver=${did} cid=${scid}`);
+}
+
+async function _recordDriverArrivedCancelAbuse(cid, driverId, bookingId, job) {
   const did = String(driverId || '').trim();
   const scid = String(cid || '').trim();
   if (!did) return null;
+  if (!arrivedIntegrity.isUnprovenArrived(job)) return null;
   const memKey = `${scid}:${did}`;
   const next = arrivedIntegrity.recordArrivedCancelState(_DRIVER_ARRIVED_ABUSE[memKey], Date.now());
   _DRIVER_ARRIVED_ABUSE[memKey] = next;
   const zd = ZONE_DRIVERS.find((d) => d && (String(d.driverid) === did || String(d.VehicleId) === did));
   if (zd) {
     zd.arrivedCancelWarning = !!next.warning;
-    zd.arrivedLocked = !!next.arrivedLocked;
+    zd.arrivedAbuseSuspended = !!next.suspended;
+  }
+  if (next.justSuspended) {
+    if (String(process.env.NODE_ENV || '').toLowerCase() !== 'test') {
+      void _suspendDriverForArrivedAbuse(scid, did);
+    }
   }
   if (String(process.env.NODE_ENV || '').toLowerCase() === 'test') return next;
   if (String(process.env.BW_SKIP_CANCEL_FAIRNESS_REMOTE_IO || '').trim() === '1') return next;
@@ -4115,7 +4189,7 @@ async function cancelBooking(opts) {
     }
 
     if (!recallToPending && _cid && _drvId && arrivedIntegrity.isImmediateArrivedCancel(Object.assign({}, job, { BookingStatus: _cancelStage }), Date.now())) {
-      void _recordDriverArrivedCancelAbuse(_cid, _drvId, bookingId);
+      void _recordDriverArrivedCancelAbuse(_cid, _drvId, bookingId, job);
     }
 
     const _phoneOut = _companyContactPhone(_cid);
@@ -8971,16 +9045,21 @@ async function driverStageJob(opts) {
   }
 
   if (nextStatus === 'Arrived') {
-    const _arrGate = _evaluateArrivedIntegrity(job, driverId, source);
+    const _arrGate = _evaluateArrivedIntegrity(job, driverId, source, {
+      lat: opts.lat, lng: opts.lng, at: opts.at,
+    });
     if (!_arrGate.ok) {
       return {
         ok: false,
-        error_code: _arrGate.error_code || 'arrived_trajectory_unproven',
-        error: _arrGate.error || 'Arrived is not allowed until GPS shows genuine travel to pickup',
+        error_code: _arrGate.error_code || 'arrived_not_at_pickup',
+        error: _arrGate.error || 'Arrived is not allowed until you are at the pickup',
+        meters: _arrGate.meters,
+        lastDistKm: _arrGate.lastDistKm,
         currentStatus: prev,
         booking: _publicBooking(job),
       };
     }
+    _stampArrivedIntegrityFlags(job, _arrGate);
   }
 
   if (nextStatus === 'Arrived' && !job.ArrivedAt) {
@@ -20403,6 +20482,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _result = await driverStageJob({
       bookingId: _sJob, driverId: _sDrv, status: _sStatusNorm, source: '/api/job/stage',
+      lat: _s.lat, lng: _s.lng, at: _s.at,
     });
     const _status = _result.ok ? 200
       : (_result.error_code === 'not_found' ? 404
@@ -25140,12 +25220,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Arrived' &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
-              const _arrGateDs = _evaluateArrivedIntegrity(job, driverId, 'DriverStatusChanged');
+              const _arrGateDs = _evaluateArrivedIntegrity(job, driverId, 'DriverStatusChanged', { lat, lng });
               if (!_arrGateDs.ok) {
                 console.warn(`  [DriverStatusChanged] Arrived blocked #${job.Id}: ${_arrGateDs.error_code} ${_arrGateDs.error}`);
               } else {
                 job.BookingStatus = 'Arrived';
                 if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+                _stampArrivedIntegrityFlags(job, _arrGateDs);
                 _stampDriverName(job);
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Arrived`);
                 void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
@@ -27422,12 +27503,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Arrived' &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
-              const _arrGateDs2 = _evaluateArrivedIntegrity(job, driverId, 'DriverStatusChanged/DS');
+              const _arrGateDs2 = _evaluateArrivedIntegrity(job, driverId, 'DriverStatusChanged/DS', { lat, lng });
               if (!_arrGateDs2.ok) {
                 console.warn(`  [DriverStatusChanged/DS] Arrived blocked #${job.Id}: ${_arrGateDs2.error_code} ${_arrGateDs2.error}`);
               } else {
                 job.BookingStatus = 'Arrived';
                 if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+                _stampArrivedIntegrityFlags(job, _arrGateDs2);
                 _stampDriverNameDS(job);
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Arrived`);
                 void _notifyPassengerStatusPush(String(job.companyId || ''), job.Id, 'Arrived', {
