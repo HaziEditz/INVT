@@ -2397,6 +2397,14 @@ function _jobHasAcceptStamp(job) {
   return String(job.DriverAcceptedAt || job.AcceptedAt || job.driverAcceptedAt || '').trim() !== '';
 }
 
+/** Pool restore (recall / decline / timeout) must drop in-memory accept marks so stale-offer heal cannot silently reclassify Offered as Assigned. */
+function _clearJobAcceptStamp(job) {
+  if (!job || typeof job !== 'object') return;
+  delete job.DriverAcceptedAt;
+  delete job.AcceptedAt;
+  delete job.driverAcceptedAt;
+}
+
 /** Stale pendingjobs/allbookings Offered must not silently reset a real accept. */
 function _fbMustNotDowngradeAccepted(jobSt, fbSt) {
   const js = String(jobSt || '').trim();
@@ -9842,6 +9850,7 @@ function _applyPoolStatusFields(job, poolStatus) {
   job.queuedAt = null;
   job.releasedAt = Date.now();
   delete job._softStaleSoleOffer;
+  _clearJobAcceptStamp(job);
   if (restored === 'No One') {
     job.manualOffer = true;
     job.originalStatus = 'manual';
@@ -9932,6 +9941,9 @@ function _jobLifecycleSnapshot(job) {
     JobCompleteTime: job.JobCompleteTime || null,
     completedAtMs: job.completedAtMs || null,
     assignedAt: job.assignedAt || null,
+    DriverAcceptedAt: job.DriverAcceptedAt || null,
+    AcceptedAt: job.AcceptedAt || null,
+    driverAcceptedAt: job.driverAcceptedAt || null,
     ArrivedAt: job.ArrivedAt || null,
     ActiveAt: job.ActiveAt || null,
     _hydratedFromFirebase: !!job._hydratedFromFirebase,
@@ -10488,6 +10500,9 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
         updateSeq: job.updateSeq,
         lastUpdatedBy: job.lastUpdatedBy,
         lastUpdatedAt: job.lastUpdatedAt,
+        DriverAcceptedAt: job.DriverAcceptedAt || null,
+        AcceptedAt: job.AcceptedAt || null,
+        driverAcceptedAt: job.driverAcceptedAt || null,
       } : null,
     },
     firebase: fb,
@@ -10563,6 +10578,9 @@ function _buildAdminJobTracePartial(bookingId, opts) {
         updateSeq: job.updateSeq,
         lastUpdatedBy: job.lastUpdatedBy,
         lastUpdatedAt: job.lastUpdatedAt,
+        DriverAcceptedAt: job.DriverAcceptedAt || null,
+        AcceptedAt: job.AcceptedAt || null,
+        driverAcceptedAt: job.driverAcceptedAt || null,
       } : null,
     },
     firebase: {
@@ -26503,6 +26521,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           _rqJob.VehicleNo     = '';
           _rqJob.queuedAt      = null;
           _rqJob.returnReason  = _rqDriverId ? `Recalled by ${_rqDriverId}` : 'Recalled by Driver';
+          _clearJobAcceptStamp(_rqJob);
           delete _rqJob._origStatus;
           if (_prevDrvRecall && _prevDrvRecall !== '0' && _prevDrvRecall !== '-1' && _prevDrvRecall !== '-2') {
             _rqJob._skipReleaseCooldownOnce = true;
