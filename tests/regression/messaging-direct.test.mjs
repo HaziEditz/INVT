@@ -92,6 +92,18 @@ test('Phase 1 messaging: dispatch send → Firebase chat → driver reply → un
     `conversation thread empty: ${JSON.stringify(convRows).slice(0, 200)}`,
   );
 
+  const texts = convRows.map((r) => String(r.Message || ''));
+  const dispatchIdx = texts.findIndex((t) => t.includes(dispatchText));
+  const replyIdx = texts.findIndex((t) => t.includes(driverReply));
+  assert.ok(dispatchIdx >= 0 && replyIdx >= 0);
+  assert.ok(
+    replyIdx > dispatchIdx,
+    `driver reply must sit below the dispatch message in conversation order (dispatch=${dispatchIdx} reply=${replyIdx})`,
+  );
+  assert.equal(String(convRows[dispatchIdx].SenderID), 'Dispatcher');
+  assert.notEqual(String(convRows[replyIdx].SenderID), 'Dispatcher');
+  assert.notEqual(String(convRows[replyIdx].SenderID), '0');
+
   assert.equal(await h.unreadCountForDriver(driverId), 0);
 });
 

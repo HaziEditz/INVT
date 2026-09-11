@@ -1,3 +1,5 @@
+import { isDispatcherSenderId } from '@/lib/chatLiveThread';
+
 async function postDataManager<T = unknown>(
   selector: 'DataSelector' | 'DataSelectorLess',
   action: string,
@@ -101,10 +103,10 @@ export async function sendBroadcastMessage(message: string): Promise<void> {
   ]);
 }
 
-export function isOutboundMessage(row: ChatMessageRow, driverId: string): boolean {
-  const sid = String(row.SenderID);
-  if (sid === '0' || sid === 'Dispatcher') return true;
-  return sid !== String(driverId);
+export function isOutboundMessage(row: ChatMessageRow, _driverId: string): boolean {
+  // Direct/Inbox is a 1:1 thread. Anything that is not the dispatcher is the driver,
+  // even when the sidebar key is a vehicle callsign and SenderID is D001 (or vice versa).
+  return isDispatcherSenderId(row.SenderID);
 }
 
 export function driverDisplayName(row: DriverChatListItem): string {

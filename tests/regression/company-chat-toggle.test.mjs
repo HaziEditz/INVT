@@ -96,6 +96,8 @@ test('open conversation subscribes to shared chatMessages thread', () => {
   assert.match(server, /_chatPersistThreadIds/);
   const live = readFileSync(join(root, 'src/lib/chatLiveThread.ts'), 'utf8');
   assert.match(live, /export function chatDriverIdsMatch/);
+  assert.match(live, /export function conversationSortMs/);
+  assert.match(live, /export function isDispatcherSenderId/);
   const rules = readFileSync(join(root, 'database.rules.json'), 'utf8');
   assert.match(rules, /"messages"/);
   assert.match(rules, /drivers'\).child\(\$companyId\)\.child\(auth\.uid\)/);

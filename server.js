@@ -12818,6 +12818,7 @@ function saveMessageStore() {
 }
 
 function _appendMessageRecord(msg) {
+  if (msg && !msg.createdAt) msg.createdAt = Date.now();
   messageStore.push(msg);
   const mid = parseInt(msg.Id, 10) || 0;
   if (mid >= nextMsgId) nextMsgId = mid + 1;
@@ -12990,6 +12991,22 @@ function _messageMatchesDriverId(msg, driverId) {
     sid === did || rid === did;
 }
 
+function _conversationSortMs(m) {
+  const created = Number(m && m.createdAt) || 0;
+  if (created > 1e12) return created;
+  if (created > 1e9 && created < 1e12) return created * 1000;
+  const date = String((m && m.Date) || '').trim();
+  const time = String((m && m.Time) || '').trim();
+  if (date) {
+    const clock = time.length >= 8 ? time : (time.length >= 5 ? time + ':00' : '00:00:00');
+    const parsed = Date.parse(date + 'T' + clock);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const id = Number(m && m.Id) || 0;
+  if (id > 1e12) return id;
+  return id;
+}
+
 function _buildDispatcherConversation(driverId) {
   const convo = messageStore.filter(m => _messageMatchesDriverId(m, driverId));
   let markedRead = false;
@@ -13003,7 +13020,9 @@ function _buildDispatcherConversation(driverId) {
   const dt2 = convo.map(m => ({
     Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
     Message: m.Message, Date: m.Date, Time: m.Time,
+    createdAt: m.createdAt || undefined,
   }));
+  dt2.sort((a, b) => _conversationSortMs(a) - _conversationSortMs(b) || ((a.Id || 0) - (b.Id || 0)));
   return { dt1: [{ PlayerId: '' }], dt2 };
 }
 

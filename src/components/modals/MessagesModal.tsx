@@ -357,9 +357,7 @@ export function MessagesModal({ companyId }: Props) {
 
       const time = now.toTimeString().substring(0, 5);
 
-      setMessages((prev) => [
-
-        ...prev,
+      setMessages((prev) => mergeConversationRows(prev, [
 
         {
 
@@ -375,9 +373,11 @@ export function MessagesModal({ companyId }: Props) {
 
           Time: time,
 
+          createdAt: Date.now(),
+
         },
 
-      ]);
+      ]));
 
       await refreshDriverList();
 
@@ -539,11 +539,11 @@ export function MessagesModal({ companyId }: Props) {
 
             return (
 
-              <div key={m.Id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
+              <div key={`${m.Id}-${m.SenderID}-${m.Time}-${m.Date}`} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
 
                 <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${out ? 'bg-bw-primary text-white' : 'bg-bw-surface border border-bw-border text-bw-text'}`}>
 
-                  {!out ? <p className="text-xs text-bw-muted mb-1">{m.User}</p> : null}
+                  <p className={`text-xs mb-1 ${out ? 'text-white/80' : 'text-bw-muted'}`}>{out ? 'You' : (m.User || 'Driver')}</p>
 
                   <p>{m.Message}</p>
 
