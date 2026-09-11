@@ -123,6 +123,8 @@ interface UiStore {
   emergency: SosEmergency | null;
   emergencyQueue: SosEmergency[];
   settings: CompanySettings | null;
+  /** HTTP/session kill-switch. Do not derive from settings===null (that fail-opens chat). */
+  companyChatEnabled: boolean;
   routePreview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } | null;
   mapInstance: google.maps.Map | null;
   setRoutePreview: (r: UiStore['routePreview']) => void;
@@ -150,6 +152,7 @@ interface UiStore {
   setEmergency: (e: UiStore['emergency']) => void;
   setEmergencyQueue: (q: UiStore['emergencyQueue']) => void;
   setSettings: (s: CompanySettings | null) => void;
+  setCompanyChatEnabled: (v: boolean) => void;
 }
 
 export interface SosResponder {
@@ -197,6 +200,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   emergency: null,
   emergencyQueue: [],
   settings: null,
+  companyChatEnabled: true,
   routePreview: null,
   mapInstance: null,
   setTheme: (t) => {
@@ -297,6 +301,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   setEmergency: (e) => set({ emergency: e }),
   setEmergencyQueue: (q) => set({ emergencyQueue: q }),
   setSettings: (s) => set({ settings: s }),
+  setCompanyChatEnabled: (v) => set({ companyChatEnabled: v }),
   setRoutePreview: (r) => set({ routePreview: r }),
   setMapInstance: (map) => set({ mapInstance: map }),
 }));

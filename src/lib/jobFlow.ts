@@ -139,6 +139,7 @@ export async function sessionMe() {
     company: string;
     ownerName?: string;
     email?: string;
+    chatEnabled?: boolean;
   }>(`${API}/session/me`);
 }
 

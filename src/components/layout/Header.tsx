@@ -34,7 +34,7 @@ function ThemeIcon({ theme }: { theme: DispatchThemeId }) {
 export function Header({ companyId, companyName, dispatcherName, onNameChange }: HeaderProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const messageUnreadCount = useUiStore((s) => s.messageUnreadCount);
-  const chatEnabled = useUiStore((s) => s.settings?.features.chatEnabled !== false);
+  const chatEnabled = useUiStore((s) => s.companyChatEnabled);
   const navItems = visibleDispatchNavItems(NAV, chatEnabled);
   const liveFiltersActive = useJobStore((s) => hasActiveLiveJobFilters(s.liveJobFilters));
   const theme = useUiStore((s) => s.theme);

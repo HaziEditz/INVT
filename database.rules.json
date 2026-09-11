@@ -70,6 +70,12 @@
         ".write": true
       }
     },
+    "notificationChat": {
+      "$driverid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "notification": {
       "$driverid": {
         ".read": true,
@@ -372,7 +378,7 @@
     "companySettings": {
       "$companyId": {
         ".validate": "$companyId!='null'",
-        ".read": "auth != null && (root.child('drivers').child(auth.uid).exists() || root.child('adminAccess').child($companyId).child(auth.uid).exists())",
+        ".read": "auth != null && (root.child('drivers').child($companyId).child(auth.uid).exists() || root.child('drivers').child(auth.uid).exists() || root.child('adminAccess').child($companyId).child(auth.uid).exists())",
         ".write": "auth != null"
       }
     },
@@ -391,6 +397,16 @@
         ".validate": "$companyId!='null'",
         "$conversationId": {
           ".validate": "$conversationId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "messages": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$driverId": {
+          ".validate": "$driverId!='null'",
           ".read": "auth != null",
           ".write": "auth != null"
         }

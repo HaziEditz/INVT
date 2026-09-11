@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import { ensureFirebaseAuth, getDb, ref, onValue, onChildAdded, remove } from '@/lib/firebase';
+import { ensureFirebaseAuth, getDb, ref, onValue, onChildAdded } from '@/lib/firebase';
 
 import { parseCityFromFirebase } from '@/lib/mapCenter';
 
@@ -128,6 +128,7 @@ function settingsFingerprint(s: CompanySettings): string {
 export function useCompanySettings(companyId: string | null) {
 
   const setSettings = useUiStore((s) => s.setSettings);
+  const setCompanyChatEnabled = useUiStore((s) => s.setCompanyChatEnabled);
 
 
 
@@ -142,6 +143,7 @@ export function useCompanySettings(companyId: string | null) {
     const h = onValue(r, (snap) => {
 
       const val = snap.val() || {};
+      setCompanyChatEnabled(isCompanyChatEnabled(val));
 
       const settings: CompanySettings = {
 
@@ -189,11 +191,11 @@ export function useCompanySettings(companyId: string | null) {
 
       setSettings(settings);
 
-    });
+    }, (err) => console.warn('[CompanySettings] RTDB', err));
 
     return () => h();
 
-  }, [companyId, setSettings]);
+  }, [companyId, setSettings, setCompanyChatEnabled]);
 
 }
 
@@ -209,7 +211,7 @@ export function useRealtimeNotifications(companyId: string | null) {
   const setEmergency = useUiStore((s) => s.setEmergency);
   const setEmergencyQueue = useUiStore((s) => s.setEmergencyQueue);
   const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
-  const chatEnabled = useUiStore((s) => s.settings?.features.chatEnabled !== false);
+  const chatEnabled = useUiStore((s) => s.companyChatEnabled);
 
 
 
@@ -432,8 +434,6 @@ export function useRealtimeNotifications(companyId: string | null) {
 
         });
         void refreshMessageUnread();
-
-        void remove(ref(db, `driverMsg/${companyId}/${key}`)).catch(() => undefined);
 
       });
       }

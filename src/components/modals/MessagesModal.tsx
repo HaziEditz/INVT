@@ -6,7 +6,9 @@ import { Button } from '@/components/shared/Button';
 
 import { useUiStore } from '@/store/uiStore';
 
-import { getDb, ref, onChildAdded } from '@/lib/firebase';
+import { getDb, ref, onChildAdded, onValue } from '@/lib/firebase';
+
+import { chatThreadDbPaths, firebaseChatValToRows, mergeLiveChatRowLists } from '@/lib/chatLiveThread';
 
 import {
 
@@ -120,7 +122,14 @@ export function MessagesModal({ companyId }: Props) {
 
       const rows = await fetchDispatcherConversation(driverId);
 
-      setMessages(rows);
+      setMessages((prev) => {
+        const map = new Map<string, ChatMessageRow>();
+        const keyOf = (r: ChatMessageRow) =>
+          String(r.Id || `${r.SenderID}|${r.Message}|${r.Date}|${r.Time}`);
+        for (const r of rows) map.set(keyOf(r), r);
+        for (const r of prev) map.set(keyOf(r), r);
+        return [...map.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.Id - b.Id);
+      });
 
       await fetchUnreadFromDriver(driverId).catch(() => undefined);
 
@@ -149,6 +158,7 @@ export function MessagesModal({ companyId }: Props) {
   const selectDriverThread = useCallback(
     async (driverId: string, scrollBehavior: ScrollBehavior = 'smooth') => {
       setSelectedId(driverId);
+      setMessages([]);
       setTab('direct');
       await loadConversation(driverId);
       window.setTimeout(() => scrollChatToBottom(scrollBehavior), 100);
@@ -230,6 +240,42 @@ export function MessagesModal({ companyId }: Props) {
     return () => unsub();
 
   }, [open, companyId, refreshDriverList, loadConversation]);
+
+
+
+  useEffect(() => {
+
+    if (!open || !companyId || !selectedId) return;
+
+    const db = getDb();
+    const bags = new Map<string, ReturnType<typeof firebaseChatValToRows>>();
+    const paths = chatThreadDbPaths(companyId, selectedId);
+    const unsubs = paths.map((path) =>
+      onValue(
+        ref(db, path),
+        (snap) => {
+          bags.set(path, firebaseChatValToRows(snap.val()));
+          const live = mergeLiveChatRowLists([...bags.values()]);
+          if (!live.length) return;
+          setMessages(
+            live.map((r) => ({
+              Id: r.Id,
+              SenderID: r.SenderID,
+              User: r.User,
+              Message: r.Message,
+              Date: r.Date,
+              Time: r.Time,
+              createdAt: r.createdAt,
+            })),
+          );
+          void refreshDriverList();
+        },
+        (err) => console.warn('[Messages] live thread', path, err),
+      ),
+    );
+    return () => unsubs.forEach((u) => u());
+
+  }, [open, companyId, selectedId, refreshDriverList]);
 
 
   useEffect(() => {

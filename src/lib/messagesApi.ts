@@ -29,6 +29,7 @@ export interface ChatMessageRow {
   Message: string;
   Date: string;
   Time: string;
+  createdAt?: number;
 }
 
 function formatDateTime(d = new Date()): string {

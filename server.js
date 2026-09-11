@@ -12866,9 +12866,51 @@ async function _fanoutChatMessage(driverId, opts, tok) {
   return true;
 }
 
+const _companyChatEnabledCache = new Map();
+const COMPANY_CHAT_ENABLED_TTL_MS = 8000;
+
+function _companyChatEnabledFromVal(val) {
+  if (val == null || typeof val !== 'object') return true;
+  if (val.chatEnabled === false) return false;
+  if (val.features && typeof val.features === 'object' && val.features.chatEnabled === false) return false;
+  return true;
+}
+
+async function _readCompanyChatEnabled(cid) {
+  const companyId = String(cid || '').trim();
+  if (!companyId) return true;
+  const hit = _companyChatEnabledCache.get(companyId);
+  if (hit && (Date.now() - hit.at) < COMPANY_CHAT_ENABLED_TTL_MS) return hit.v;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return true;
+    const val = await firebaseDbGet(`companySettings/${companyId}`, tok);
+    const enabled = _companyChatEnabledFromVal(val);
+    _companyChatEnabledCache.set(companyId, { v: enabled, at: Date.now() });
+    return enabled;
+  } catch (e) {
+    console.warn(`[chatEnabled] read failed cid=${companyId}: ${e && e.message}`);
+    return true;
+  }
+}
+
+async function _rejectIfCompanyChatDisabled(res, cid) {
+  if (!cid) return false;
+  const on = await _readCompanyChatEnabled(cid);
+  if (on) return false;
+  res.writeHead(403, JSON_HEADERS);
+  res.end(JSON.stringify({
+    ok: false,
+    error: 'Chat is disabled for this company',
+    d: 'Chat is disabled for this company',
+  }));
+  return true;
+}
+
 async function _persistChatMessageFirebase(cid, threadDriverId, msg, tok) {
   if (!cid || !threadDriverId || !tok || !msg) return null;
-  const pushed = await firebaseDbPush(`messages/${cid}/${threadDriverId}`, {
+  const createdAt = Date.now();
+  const payload = {
     id: msg.Id,
     senderId: String(msg.SenderId),
     receiverId: String(msg.ReceiverId),
@@ -12877,9 +12919,19 @@ async function _persistChatMessageFirebase(cid, threadDriverId, msg, tok) {
     date: msg.Date,
     time: msg.Time,
     isRead: !!msg.IsRead,
-    createdAt: Date.now(),
-  }, tok);
-  return (pushed && pushed.name) ? pushed.name : null;
+    createdAt,
+  };
+  const ids = [...new Set([
+    String(threadDriverId).trim(),
+    _resolveChatNotifyDriverId(threadDriverId, cid),
+  ].filter(Boolean))];
+  let lastName = null;
+  for (const did of ids) {
+    const a = await firebaseDbPush(`messages/${cid}/${did}`, payload, tok);
+    const b = await firebaseDbPush(`chatMessages/${cid}/${did}`, payload, tok);
+    lastName = (b && b.name) || (a && a.name) || lastName;
+  }
+  return lastName;
 }
 
 async function _pushDriverMsgNotify(cid, payload, tok) {
@@ -18185,6 +18237,7 @@ const server = http.createServer(async (req, res) => {
     const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
                   || req.socket?.remoteAddress
                   || 'unknown';
+    const chatEnabled = await _readCompanyChatEnabled(reg.companyId);
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Set-Cookie': sessionCookieHeader(reg.companyId),
@@ -18198,6 +18251,7 @@ const server = http.createServer(async (req, res) => {
       email:     reg.email || reg.ownerEmail || '',
       ownerName: reg.name || '',
       ip:        clientIp,
+      chatEnabled,
     }));
     return;
   }
@@ -21935,6 +21989,29 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── GET /api/driver/company-chat — driver kill-switch (HTTP, not RTDB client) ─
+  if (urlPath === '/api/driver/company-chat' && req.method === 'GET') {
+    const _ccHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _ccQs = new URL('http://x' + (req.url || '/')).searchParams;
+    const _ccUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _ccDriverId = String(_ccQs.get('driverId') || _ccQs.get('driverid') || '').trim();
+    const _ccCompanyId = String(_ccQs.get('companyId') || _ccQs.get('companyid') || '').trim();
+    let _ccDriver = _lookupZoneDriverByUserKey(_ccUserKey, _ccDriverId, _ccCompanyId);
+    if (!_ccDriver) {
+      _ccDriver = _lookupZoneDriverByUserKey('', _ccDriverId, _ccCompanyId);
+    }
+    if (!_ccDriver) {
+      res.writeHead(401, _ccHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown driver (X-User-Key required)' }));
+      return;
+    }
+    const _ccCid = String(_ccDriver.companyId || _ccCompanyId || '').trim();
+    const chatEnabled = await _readCompanyChatEnabled(_ccCid);
+    res.writeHead(200, _ccHdr);
+    res.end(JSON.stringify({ ok: true, chatEnabled, companyId: _ccCid }));
+    return;
+  }
+
   // ── POST /api/driver/message — driver → dispatcher chat ───────────────────
   if (urlPath === '/api/driver/message' && req.method === 'POST') {
     const _msgRaw = await readBody(req);
@@ -21960,6 +22037,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       return;
     }
     const _msgCid = String(_msgDriver.companyId || '').trim();
+    if (await _rejectIfCompanyChatDisabled(res, _msgCid)) return;
     const _msgDrvId = String(_msgDriver.driverid || '').trim();
     const { datePart, timePart, dateTime: dtFull } = _chatDatetimeParts(_msgBody.dateTime);
     const senderName = String(_msgDriver.drivername || _msgBody.driverName || ('Driver ' + _msgDrvId)).trim();
@@ -24186,6 +24264,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Emergency Stored');
 
       } else if (action === '[MessageInsert]') {
+        if (await _rejectIfCompanyChatDisabled(res, sessionCompanyId)) return;
         const receiverId = (param('RecieverId') || param('ReceiverId') || '').trim();
         const senderId   = (param('SenderId') || 'Dispatcher').toString().trim();
         const message    = param('Message') || '';
@@ -24219,6 +24298,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Message Saved');
 
       } else if (action === '[DriverMessageInsert]') {
+        if (await _rejectIfCompanyChatDisabled(res, sessionCompanyId)) return;
         const senderId  = (param('SenderId') || '').toString().trim();
         const message   = param('Message') || '';
         const dateTime  = param('DateTime') || '';
@@ -24244,6 +24324,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Message stored');
 
       } else if (action === '[BroadcastMessage]') {
+        if (await _rejectIfCompanyChatDisabled(res, sessionCompanyId)) return;
         const message  = param('Message') || '';
         const dateTime = param('DateTime') || '';
         const { datePart, timePart, dateTime: dtFull } = _chatDatetimeParts(dateTime);
@@ -24287,6 +24368,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, sent > 0 ? `Broadcast sent to ${sent} drivers` : 'Broadcast sent successfully');
 
       } else if (action === '[GroupMessage]') {
+        if (await _rejectIfCompanyChatDisabled(res, sessionCompanyId)) return;
         const message   = param('Message') || '';
         const zone      = (param('Zone') || '').toLowerCase();
         const vtype     = (param('VehicleType') || '').toLowerCase();

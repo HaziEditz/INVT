@@ -48,7 +48,8 @@ export function DispatchPage() {
   const setMapPoppedOut = useUiStore((s) => s.setMapPoppedOut);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const jobs = useJobStore((s) => s.jobs);
-  const chatEnabled = useUiStore((s) => s.settings?.features.chatEnabled !== false);
+  const chatEnabled = useUiStore((s) => s.companyChatEnabled);
+  const setCompanyChatEnabled = useUiStore((s) => s.setCompanyChatEnabled);
   const closeModal = useUiStore((s) => s.closeModal);
   const openModal = useUiStore((s) => s.openModal);
 
@@ -65,6 +66,7 @@ export function DispatchPage() {
         setCompanyId(s.companyId);
         setCompanyName(s.company);
         localStorage.setItem('bw_company_id', s.companyId);
+        if (typeof s.chatEnabled === 'boolean') setCompanyChatEnabled(s.chatEnabled);
         const acct = await accountStatus(s.companyId);
         if (acct.loginBlocked) {
           setBillingBanner(acct.blockMessage || 'Subscription expired — contact support@bookawaka.com');
@@ -72,7 +74,7 @@ export function DispatchPage() {
         setAuthChecked(true);
       })
       .catch(() => navigate('/login', { replace: true }));
-  }, [navigate, setBillingBanner]);
+  }, [navigate, setBillingBanner, setCompanyChatEnabled]);
 
   useJobs(activeCompanyId);
   useDispatchWindowAlerts(jobs);
