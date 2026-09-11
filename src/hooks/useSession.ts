@@ -9,6 +9,8 @@ import { startEmergencyAlarm, stopEmergencyAlarm } from '@/lib/notifySound';
 import { formatSosLocation, notifySosAlert } from '@/lib/dispatchNotifications';
 import { fetchMessageUnreadTotal } from '@/lib/messagesApi';
 
+import { isCompanyChatEnabled } from '@/lib/companyChatPolicy';
+
 import { useUiStore } from '@/store/uiStore';
 
 import type { CompanySettings } from '@/types/booking';
@@ -30,6 +32,8 @@ const DEFAULT_FEATURES = {
   accEnabled: true,
 
   businessAccounts: true,
+
+  chatEnabled: true,
 
 };
 
@@ -167,6 +171,8 @@ export function useCompanySettings(companyId: string | null) {
 
           businessAccounts: val.businessAccounts !== false,
 
+          chatEnabled: isCompanyChatEnabled(val),
+
         },
 
         tmConfig: val.tmConfig || {},
@@ -203,6 +209,7 @@ export function useRealtimeNotifications(companyId: string | null) {
   const setEmergency = useUiStore((s) => s.setEmergency);
   const setEmergencyQueue = useUiStore((s) => s.setEmergencyQueue);
   const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
+  const chatEnabled = useUiStore((s) => s.settings?.features.chatEnabled !== false);
 
 
 
@@ -386,6 +393,9 @@ export function useRealtimeNotifications(companyId: string | null) {
 
 
 
+      if (!chatEnabled) {
+        setMessageUnreadCount(0);
+      } else {
       const msgRef = ref(db, `driverMsg/${companyId}`);
 
       unsubMsg = onChildAdded(msgRef, (snap) => {
@@ -426,6 +436,7 @@ export function useRealtimeNotifications(companyId: string | null) {
         void remove(ref(db, `driverMsg/${companyId}/${key}`)).catch(() => undefined);
 
       });
+      }
 
 
 
@@ -450,10 +461,10 @@ export function useRealtimeNotifications(companyId: string | null) {
         }
 
       });
-      const unreadIv = setInterval(() => void refreshMessageUnread(), 8000);
+      const unreadIv = chatEnabled ? setInterval(() => void refreshMessageUnread(), 8000) : null;
       const prevUnsubReg = unsubReg;
       unsubReg = () => {
-        clearInterval(unreadIv);
+        if (unreadIv) clearInterval(unreadIv);
         prevUnsubReg();
       };
 
@@ -475,7 +486,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     };
 
-  }, [companyId, addToast, setEmergency, setEmergencyQueue, setMessageUnreadCount, openModalWith, openMessagesForDriver]);
+  }, [companyId, chatEnabled, addToast, setEmergency, setEmergencyQueue, setMessageUnreadCount, openModalWith, openMessagesForDriver]);
 
 }
 

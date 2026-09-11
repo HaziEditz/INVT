@@ -6,6 +6,7 @@ import { useJobStore } from '@/store/jobStore';
 import { hasActiveLiveJobFilters } from '@/lib/liveJobFilters';
 import { logoutSession } from '@/lib/jobFlow';
 import { dispatcherInitials } from '@/lib/utils';
+import { visibleDispatchNavItems } from '@/lib/companyChatPolicy';
 import { THEME_LABELS, type DispatchThemeId } from '@/lib/theme';
 
 interface HeaderProps {
@@ -33,6 +34,8 @@ function ThemeIcon({ theme }: { theme: DispatchThemeId }) {
 export function Header({ companyId, companyName, dispatcherName, onNameChange }: HeaderProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const messageUnreadCount = useUiStore((s) => s.messageUnreadCount);
+  const chatEnabled = useUiStore((s) => s.settings?.features.chatEnabled !== false);
+  const navItems = visibleDispatchNavItems(NAV, chatEnabled);
   const liveFiltersActive = useJobStore((s) => hasActiveLiveJobFilters(s.liveJobFilters));
   const theme = useUiStore((s) => s.theme);
   const cycleTheme = useUiStore((s) => s.cycleTheme);
@@ -81,7 +84,7 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
         </div>
 
         <nav className="flex items-center gap-1 ml-auto overflow-x-auto">
-          {NAV.map((n, i) => (
+          {navItems.map((n, i) => (
             <button
               key={`${n.id}-${n.label}-${i}`}
               className="bw-nav-link px-2.5"

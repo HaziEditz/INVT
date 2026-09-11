@@ -48,6 +48,9 @@ export function DispatchPage() {
   const setMapPoppedOut = useUiStore((s) => s.setMapPoppedOut);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const jobs = useJobStore((s) => s.jobs);
+  const chatEnabled = useUiStore((s) => s.settings?.features.chatEnabled !== false);
+  const closeModal = useUiStore((s) => s.closeModal);
+  const openModal = useUiStore((s) => s.openModal);
 
   const activeCompanyId = ready && companyId ? companyId : null;
 
@@ -77,6 +80,10 @@ export function DispatchPage() {
   useSession(activeCompanyId, sessionId, dispatcherName);
   useCompanySettings(activeCompanyId);
   useRealtimeNotifications(activeCompanyId);
+
+  useEffect(() => {
+    if (!chatEnabled && openModal === 'messages') closeModal();
+  }, [chatEnabled, openModal, closeModal]);
 
   useEffect(() => {
     localStorage.setItem('bw_dispatcher_name', dispatcherName);
@@ -200,7 +207,7 @@ export function DispatchPage() {
       <CreateJobModal mapsKey={mapsKey} companyId={companyId} dispatcherName={dispatcherName} />
       <JobDetailModal />
       <DriverDetailModal />
-      <MessagesModal companyId={activeCompanyId} />
+      {chatEnabled ? <MessagesModal companyId={activeCompanyId} /> : null}
       <ClosedJobsModal companyId={activeCompanyId} />
       <SearchJobsModal companyId={companyId} />
       <AlarmsModal companyId={companyId} />

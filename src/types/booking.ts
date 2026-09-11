@@ -6,6 +6,7 @@ export interface CompanyFeatures {
   cardBooking: boolean;
   accEnabled: boolean;
   businessAccounts: boolean;
+  chatEnabled: boolean;
 }
 
 export interface CompanySettings {
