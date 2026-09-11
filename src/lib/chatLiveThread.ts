@@ -6,10 +6,22 @@ export function chatThreadDriverIds(driverId: string): string[] {
   const ids = new Set<string>([raw]);
   const stripped = raw.replace(/[\s\-_.]/g, '');
   const withLetter = stripped.match(/^([dD])(\d+)$/);
+  const digits = stripped.match(/^(\d+)$/);
   if (withLetter) {
-    ids.add('D' + String(parseInt(withLetter[2], 10)).padStart(3, '0'));
+    const n = parseInt(withLetter[2], 10);
+    ids.add('D' + String(n).padStart(3, '0'));
+    ids.add(String(n));
+  } else if (digits) {
+    const n = parseInt(digits[1], 10);
+    ids.add('D' + String(n).padStart(3, '0'));
+    ids.add(String(n));
   }
   return [...ids];
+}
+
+export function chatDriverIdsMatch(a: string, b: string): boolean {
+  const left = new Set(chatThreadDriverIds(a));
+  return chatThreadDriverIds(b).some((id) => left.has(id));
 }
 
 export function chatThreadDbPaths(companyId: string, driverId: string): string[] {
@@ -76,5 +88,17 @@ export function mergeLiveChatRowLists(lists: LiveChatRow[][]): LiveChatRow[] {
       if (!prev || (row.createdAt || 0) >= (prev.createdAt || 0)) map.set(key, row);
     }
   }
+  return [...map.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.Id - b.Id);
+}
+
+export function mergeConversationRows<T extends { Id: number; SenderID?: unknown; Message?: unknown; Date?: unknown; Time?: unknown; createdAt?: number }>(
+  primary: T[],
+  incoming: T[],
+): T[] {
+  const map = new Map<string, T>();
+  const keyOf = (r: T) =>
+    String(r.Id || `${r.SenderID}|${r.Message}|${r.Date}|${r.Time}`);
+  for (const r of primary) map.set(keyOf(r), r);
+  for (const r of incoming) map.set(keyOf(r), r);
   return [...map.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.Id - b.Id);
 }

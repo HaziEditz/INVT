@@ -11,6 +11,8 @@ import { fetchMessageUnreadTotal } from '@/lib/messagesApi';
 
 import { isCompanyChatEnabled } from '@/lib/companyChatPolicy';
 
+import { sessionMe } from '@/lib/jobFlow';
+
 import { useUiStore } from '@/store/uiStore';
 
 import type { CompanySettings } from '@/types/booking';
@@ -136,11 +138,32 @@ export function useCompanySettings(companyId: string | null) {
 
     if (!companyId) return;
 
+    let cancelled = false;
+    const pullChatFlag = async () => {
+      try {
+        const s = await sessionMe();
+        if (!cancelled && typeof s.chatEnabled === 'boolean') setCompanyChatEnabled(s.chatEnabled);
+      } catch {
+        /* keep last known flag */
+      }
+    };
+    void pullChatFlag();
+    const iv = setInterval(() => void pullChatFlag(), 4000);
+
+    let unsub = () => {};
+    void (async () => {
+      try {
+        await ensureFirebaseAuth();
+      } catch (e) {
+        console.warn('[CompanySettings] auth', e);
+      }
+      if (cancelled) return;
+
     const db = getDb();
 
     const r = ref(db, `companySettings/${companyId}`);
 
-    const h = onValue(r, (snap) => {
+    unsub = onValue(r, (snap) => {
 
       const val = snap.val() || {};
       setCompanyChatEnabled(isCompanyChatEnabled(val));
@@ -193,7 +216,13 @@ export function useCompanySettings(companyId: string | null) {
 
     }, (err) => console.warn('[CompanySettings] RTDB', err));
 
-    return () => h();
+    })();
+
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+      unsub();
+    };
 
   }, [companyId, setSettings, setCompanyChatEnabled]);
 

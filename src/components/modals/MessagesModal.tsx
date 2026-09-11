@@ -6,9 +6,9 @@ import { Button } from '@/components/shared/Button';
 
 import { useUiStore } from '@/store/uiStore';
 
-import { getDb, ref, onChildAdded, onValue } from '@/lib/firebase';
+import { getDb, ref, onChildAdded, onValue, ensureFirebaseAuth } from '@/lib/firebase';
 
-import { chatThreadDbPaths, firebaseChatValToRows, mergeLiveChatRowLists } from '@/lib/chatLiveThread';
+import { chatDriverIdsMatch, chatThreadDbPaths, firebaseChatValToRows, mergeConversationRows, mergeLiveChatRowLists } from '@/lib/chatLiveThread';
 
 import {
 
@@ -114,22 +114,16 @@ export function MessagesModal({ companyId }: Props) {
 
 
 
-  const loadConversation = useCallback(async (driverId: string) => {
+  const loadConversation = useCallback(async (driverId: string, opts?: { silent?: boolean }) => {
 
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
 
     try {
 
       const rows = await fetchDispatcherConversation(driverId);
+      if (opts?.silent && selectedIdRef.current && String(selectedIdRef.current) !== String(driverId)) return;
 
-      setMessages((prev) => {
-        const map = new Map<string, ChatMessageRow>();
-        const keyOf = (r: ChatMessageRow) =>
-          String(r.Id || `${r.SenderID}|${r.Message}|${r.Date}|${r.Time}`);
-        for (const r of rows) map.set(keyOf(r), r);
-        for (const r of prev) map.set(keyOf(r), r);
-        return [...map.values()].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.Id - b.Id);
-      });
+      setMessages((prev) => mergeConversationRows(rows, prev));
 
       await fetchUnreadFromDriver(driverId).catch(() => undefined);
 
@@ -143,11 +137,13 @@ export function MessagesModal({ companyId }: Props) {
 
       console.error('[Messages] conversation failed', e);
 
-      addToast({ type: 'error', title: 'Messages', message: 'Could not load conversation' });
+      if (!opts?.silent) {
+        addToast({ type: 'error', title: 'Messages', message: 'Could not load conversation' });
+      }
 
     } finally {
 
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
 
     }
 
@@ -158,6 +154,7 @@ export function MessagesModal({ companyId }: Props) {
   const selectDriverThread = useCallback(
     async (driverId: string, scrollBehavior: ScrollBehavior = 'smooth') => {
       setSelectedId(driverId);
+      selectedIdRef.current = driverId;
       setMessages([]);
       setTab('direct');
       await loadConversation(driverId);
@@ -229,9 +226,9 @@ export function MessagesModal({ companyId }: Props) {
 
       const activeId = selectedIdRef.current;
 
-      if (activeId && driverId && String(activeId) === driverId) {
+      if (activeId && driverId && chatDriverIdsMatch(activeId, driverId)) {
 
-        void loadConversation(driverId);
+        void loadConversation(driverId, { silent: true });
 
       }
 
@@ -247,35 +244,65 @@ export function MessagesModal({ companyId }: Props) {
 
     if (!open || !companyId || !selectedId) return;
 
-    const db = getDb();
+    let cancelled = false;
     const bags = new Map<string, ReturnType<typeof firebaseChatValToRows>>();
-    const paths = chatThreadDbPaths(companyId, selectedId);
-    const unsubs = paths.map((path) =>
-      onValue(
-        ref(db, path),
-        (snap) => {
-          bags.set(path, firebaseChatValToRows(snap.val()));
-          const live = mergeLiveChatRowLists([...bags.values()]);
-          if (!live.length) return;
-          setMessages(
-            live.map((r) => ({
-              Id: r.Id,
-              SenderID: r.SenderID,
-              User: r.User,
-              Message: r.Message,
-              Date: r.Date,
-              Time: r.Time,
-              createdAt: r.createdAt,
-            })),
-          );
-          void refreshDriverList();
-        },
-        (err) => console.warn('[Messages] live thread', path, err),
-      ),
-    );
-    return () => unsubs.forEach((u) => u());
+    let unsubs: Array<() => void> = [];
+
+    void (async () => {
+      try {
+        await ensureFirebaseAuth();
+      } catch (e) {
+        console.warn('[Messages] live auth', e);
+      }
+      if (cancelled) return;
+      const db = getDb();
+      const paths = chatThreadDbPaths(companyId, selectedId);
+      unsubs = paths.map((path) =>
+        onValue(
+          ref(db, path),
+          (snap) => {
+            bags.set(path, firebaseChatValToRows(snap.val()));
+            const live = mergeLiveChatRowLists([...bags.values()]);
+            if (!live.length) return;
+            setMessages((prev) =>
+              mergeConversationRows(
+                prev,
+                live.map((r) => ({
+                  Id: r.Id,
+                  SenderID: r.SenderID,
+                  User: r.User,
+                  Message: r.Message,
+                  Date: r.Date,
+                  Time: r.Time,
+                  createdAt: r.createdAt,
+                })),
+              ),
+            );
+            void refreshDriverList();
+          },
+          (err) => console.warn('[Messages] live thread', path, err),
+        ),
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+      unsubs.forEach((u) => u());
+    };
 
   }, [open, companyId, selectedId, refreshDriverList]);
+
+
+  useEffect(() => {
+
+    if (!open || !selectedId) return;
+    const driverId = selectedId;
+    const iv = window.setInterval(() => {
+      void loadConversation(driverId, { silent: true });
+    }, 2000);
+    return () => window.clearInterval(iv);
+
+  }, [open, selectedId, loadConversation]);
 
 
   useEffect(() => {

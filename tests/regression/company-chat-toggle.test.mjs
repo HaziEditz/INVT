@@ -56,6 +56,7 @@ test('Messages modal is not mounted when chat is off', () => {
   assert.match(src, /companyChatEnabled/);
   assert.match(src, /chatEnabled\s*\?\s*<MessagesModal/);
   assert.match(src, /s\.chatEnabled === 'boolean'/);
+  assert.match(src, /setInterval/);
 });
 
 test('company settings map nested and flat chatEnabled', () => {
@@ -64,6 +65,8 @@ test('company settings map nested and flat chatEnabled', () => {
   assert.match(src, /chatEnabled:\s*isCompanyChatEnabled/);
   assert.match(src, /if\s*\(\s*!chatEnabled\s*\)/);
   assert.match(src, /s\.companyChatEnabled/);
+  assert.match(src, /sessionMe/);
+  assert.match(src, /setInterval\(\(\) => void pullChatFlag/);
   assert.doesNotMatch(src, /remove\(ref\(db,\s*`driverMsg/);
   const policy = readFileSync(join(root, 'src/lib/companyChatPolicy.ts'), 'utf8');
   assert.match(src, /isCompanyChatEnabled/);
@@ -86,6 +89,13 @@ test('open conversation subscribes to shared chatMessages thread', () => {
   const modal = readFileSync(join(root, 'src/components/modals/MessagesModal.tsx'), 'utf8');
   assert.match(modal, /chatThreadDbPaths/);
   assert.match(modal, /firebaseChatValToRows/);
+  assert.match(modal, /silent:\s*true/);
+  assert.match(modal, /mergeConversationRows/);
+  assert.match(modal, /ensureFirebaseAuth/);
+  const server = readFileSync(join(root, 'server.js'), 'utf8');
+  assert.match(server, /_chatPersistThreadIds/);
+  const live = readFileSync(join(root, 'src/lib/chatLiveThread.ts'), 'utf8');
+  assert.match(live, /export function chatDriverIdsMatch/);
   const rules = readFileSync(join(root, 'database.rules.json'), 'utf8');
   assert.match(rules, /"messages"/);
   assert.match(rules, /drivers'\).child\(\$companyId\)\.child\(auth\.uid\)/);

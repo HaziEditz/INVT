@@ -12867,7 +12867,7 @@ async function _fanoutChatMessage(driverId, opts, tok) {
 }
 
 const _companyChatEnabledCache = new Map();
-const COMPANY_CHAT_ENABLED_TTL_MS = 8000;
+const COMPANY_CHAT_ENABLED_TTL_MS = 2000;
 
 function _companyChatEnabledFromVal(val) {
   if (val == null || typeof val !== 'object') return true;
@@ -12907,6 +12907,24 @@ async function _rejectIfCompanyChatDisabled(res, cid) {
   return true;
 }
 
+function _chatPersistThreadIds(rawId, cid) {
+  const raw = String(rawId || '').trim();
+  const resolved = _resolveChatNotifyDriverId(raw, cid);
+  const identity = resolveDriverIdentity(raw, { companyId: cid });
+  const ids = new Set();
+  if (raw) ids.add(raw);
+  if (resolved) ids.add(resolved);
+  if (identity && identity.driverId) ids.add(String(identity.driverId).trim());
+  if (identity && identity.vehicleId) ids.add(String(identity.vehicleId).trim());
+  const row = identity && identity.row;
+  if (row) {
+    if (row.driverid) ids.add(String(row.driverid).trim());
+    if (row.VehicleId) ids.add(String(row.VehicleId).trim());
+    if (row.vehiclenumber) ids.add(String(row.vehiclenumber).trim());
+  }
+  return [...ids].filter(Boolean);
+}
+
 async function _persistChatMessageFirebase(cid, threadDriverId, msg, tok) {
   if (!cid || !threadDriverId || !tok || !msg) return null;
   const createdAt = Date.now();
@@ -12921,10 +12939,7 @@ async function _persistChatMessageFirebase(cid, threadDriverId, msg, tok) {
     isRead: !!msg.IsRead,
     createdAt,
   };
-  const ids = [...new Set([
-    String(threadDriverId).trim(),
-    _resolveChatNotifyDriverId(threadDriverId, cid),
-  ].filter(Boolean))];
+  const ids = _chatPersistThreadIds(threadDriverId, cid);
   let lastName = null;
   for (const did of ids) {
     const a = await firebaseDbPush(`messages/${cid}/${did}`, payload, tok);
@@ -24283,7 +24298,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const notifyDriverId = _resolveChatNotifyDriverId(receiverId, sessionCompanyId);
             getFirebaseServerToken().then(async (tok) => {
               if (!tok) return;
-              await _persistChatMessageFirebase(sessionCompanyId, notifyDriverId || receiverId, msg, tok);
+              await _persistChatMessageFirebase(sessionCompanyId, receiverId, msg, tok);
               await _fanoutChatMessage(receiverId, {
                 senderName,
                 message: message.trim(),
@@ -24352,7 +24367,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             getFirebaseServerToken().then(async (tok) => {
               if (!tok) return;
               const notifyDriverId = _resolveChatNotifyDriverId(receiverId, sessionCompanyId);
-              await _persistChatMessageFirebase(sessionCompanyId, notifyDriverId || receiverId, msg, tok);
+              await _persistChatMessageFirebase(sessionCompanyId, receiverId, msg, tok);
               await _fanoutChatMessage(receiverId, {
                 senderName,
                 message: body,
